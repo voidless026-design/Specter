@@ -16,6 +16,9 @@
 #     that PyInstaller's static analysis can miss.
 #   - vosk and sounddevice each ship a native shared library (libvosk /
 #     bundled PortAudio) alongside their Python code, only bundled if asked.
+#   - sqlite_vec ships vec0.so/.dll as package DATA, not as an importable
+#     extension module, and loads it from dirname(__file__) at runtime - so
+#     it has to land next to the frozen package, hence collect_data_files.
 #   - the GUI's index.html is data, not code, and must be added explicitly.
 # The collect_* calls and datas below cover these. If the built binary fails
 # at runtime with ModuleNotFoundError or a missing-file error, add the named
@@ -23,7 +26,7 @@
 
 import os
 
-from PyInstaller.utils.hooks import collect_dynamic_libs, collect_submodules
+from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs, collect_submodules
 
 REPO_ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
@@ -36,6 +39,9 @@ binaries = collect_dynamic_libs("vosk") + collect_dynamic_libs("sounddevice")
 
 # Bundle the GUI so `ev gui` / the daemon can serve it from inside the binary.
 datas = [(os.path.join(REPO_ROOT, "ev_assistant", "gui", "index.html"), "ev_assistant/gui")]
+# The sqlite-vec loadable extension. Without it the bundle still runs, just
+# with keyword-only search instead of hybrid.
+datas += collect_data_files("sqlite_vec", includes=["*.so", "*.dll", "*.dylib"])
 
 a = Analysis(
     [os.path.join(REPO_ROOT, "ev_assistant", "__main__.py")],
