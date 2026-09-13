@@ -5,9 +5,10 @@ from ev_assistant.knowledge import Knowledge, chunk_text
 
 def test_chunk_text_splits_long_content():
     text = "\n\n".join(f"Paragraph {i} " + "word " * 60 for i in range(5))
-    chunks = chunk_text(text, target_chars=400)
+    chunks = chunk_text(text, target_tokens=100, overlap_tokens=0)
     assert len(chunks) > 1
-    assert all(len(c) <= 900 for c in chunks)
+    # ~100 tokens * 4 chars/token, with a little slack for paragraph joins.
+    assert all(len(c) <= 500 for c in chunks)
 
 
 def test_add_and_count(knowledge):

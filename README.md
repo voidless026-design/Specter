@@ -199,11 +199,26 @@ apps, volume, media, launch Jegeo) and **question answering from a local
 knowledge base** you build up in advance:
 
 ```bash
-ev learn --wikipedia "Water purification"
-ev learn --wikipedia "First aid"
-ev learn --url https://example.com/survival-guide
-ev learn --file ~/notes/wilderness.pdf     # .txt, .md, or .pdf
+ev learn "Water purification"              # bare topic -> Wikipedia
+ev learn https://example.com/survival      # URL -> web page
+ev learn ~/notes/wilderness.pdf            # path -> .txt, .md, or .pdf
 ```
+
+The source type is auto-detected; `--wikipedia` / `--url` / `--file` force it.
+To pull in a whole reference site, follow links to a bounded depth:
+
+```bash
+ev learn https://example.com/survival --depth 1              # + everything it links to
+ev learn "Wilderness survival" --depth 1 --max-pages 50      # crawl Wikipedia links
+ev learn https://example.com/docs --depth 2 --any-domain     # off-site links too
+```
+
+Crawling is deliberately bounded: `--max-pages` (default 20) is a hard budget,
+links stay on the starting domain unless you pass `--any-domain`, already-seen
+pages are skipped so cycles terminate, and links pointing at private/loopback
+addresses are refused. Re-learning the same page is a no-op - content is
+de-duplicated by hash - so you can safely re-run a crawl to pick up new pages.
+Use `--force` to re-ingest a page whose content changed.
 
 Everything you teach her is stored in a local full-text index and read back
 when offline - a survivalist/reference brain for no-signal situations. For
