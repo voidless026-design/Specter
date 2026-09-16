@@ -59,10 +59,19 @@ _MEDIA_WORDS = {
 
 
 class OfflineBrain:
-    def __init__(self, cfg: Config, knowledge: Knowledge, executor: Executor):
+    def __init__(
+        self,
+        cfg: Config,
+        knowledge: Knowledge,
+        executor: Executor,
+        reason: str = "offline",
+    ):
         self.cfg = cfg
         self.knowledge = knowledge
         self.executor = executor
+        # "offline" (no network) or "no_key" (network fine but no valid API
+        # key) - changes the message when she can't answer a question.
+        self.reason = reason
 
     def respond(self, text: str) -> str:
         command_reply = self._try_command(text)
@@ -124,6 +133,12 @@ class OfflineBrain:
             if answer:
                 return answer
         if not context:
+            if self.reason == "no_key":
+                return (
+                    "I can run commands and read my offline notes, but I need an Anthropic "
+                    "API key to actually talk things through. Set one with ev set-key, "
+                    "then restart me. Run ev doctor if you want me to check it."
+                )
             return (
                 "I'm offline and I don't have anything on that in my knowledge base yet. "
                 "Teach me with 'ev learn' while you're online and I'll remember it for next time."

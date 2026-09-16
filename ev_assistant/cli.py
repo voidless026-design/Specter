@@ -19,7 +19,9 @@ from ev_assistant.config import (
     config_path,
     env_file_path,
     load_config,
+    looks_like_real_key,
     write_default_config,
+    write_env_var,
 )
 
 
@@ -74,6 +76,157 @@ def cmd_init(args: argparse.Namespace) -> None:
     print("  E.V. can also run fully offline - set offline.mode = \"offline\" in the config.")
     print()
     print("Then: systemctl --user start ev-assistant   (or just `ev daemon`)")
+
+
+def cmd_set_key(args: argparse.Namespace) -> None:
+    key = (args.key or "").strip()
+    if not key:
+        import getpass
+
+        key = getpass.getpass("Paste your Anthropic API key (hidden): ").strip()
+    if not looks_like_real_key(key):
+        print(
+            "That doesn't look like an Anthropic key (they start with 'sk-ant-'). "
+            "Get one at https://console.anthropic.com/settings/keys.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    path = write_env_var("ANTHROPIC_API_KEY", key)
+    print(f"Saved your API key to {path}.")
+    print("Now restart E.V.:  systemctl --user restart ev-assistant   (or restart `ev daemon`)")
+    print("Then check it:      ev doctor")
+
+
+def cmd_doctor(args: argparse.Namespace) -> None:
+    """Run through everything E.V. needs and report what's wrong."""
+    import shutil
+
+    cfg = load_config()
+    ok = "  [ OK ]"
+    bad = "  [FAIL]"
+    warn = "  [WARN]"
+    problems = 0
+
+    print("E.V. health check\n")
+
+    # 1. Config + token
+    print(f"Config: {config_path()}")
+    print(f"Secrets: {env_file_path()}")
+    print(ok + " control token set" if cfg.control_token else bad + " EV_CONTROL_TOKEN missing (run `ev init`)")
+    problems += 0 if cfg.control_token else 1
+
+    # 2. API key - real check with a tiny call.
+    if cfg.offline_mode == "offline":
+        print(warn + " offline.mode = offline - Claude is intentionally disabled")
+    elif not looks_like_real_key(cfg.anthropic_api_key):
+        print(bad + " ANTHROPIC_API_KEY missing or placeholder - set it with `ev set-key`")
+        problems += 1
+    else:
+        print("  ... testing the API key against Claude ...")
+        err = _test_api_key(cfg)
+        if err is None:
+            print(ok + f" API key works (model {cfg.model})")
+        else:
+            print(bad + f" API key rejected: {err}")
+            problems += 1
+
+    # 3. Audio output (voice)
+    players = [p for p in ("ffplay", "mpv", "paplay", "aplay", "mpg123") if shutil.which(p)]
+    if players:
+        print(ok + f" audio player present ({players[0]})")
+    else:
+        print(bad + " no audio player - install one: sudo dnf install ffmpeg-free")
+        problems += 1
+    if shutil.which("espeak-ng") or shutil.which("espeak"):
+        print(ok + " espeak-ng present (offline voice fallback)")
+    else:
+        print(bad + " espeak-ng missing - sudo dnf install espeak-ng")
+        problems += 1
+
+    # 4. Australian neural voice
+    import importlib.util
+
+    if importlib.util.find_spec("edge_tts") is not None:
+        from ev_assistant.net import is_online
+
+        if is_online():
+            print("  ... testing the Australian neural voice ...")
+            if _test_edge_voice(cfg):
+                print(ok + f" Australian voice works ({cfg.edge_voice})")
+            else:
+                print(warn + " edge-tts didn't produce audio - will fall back to espeak (robotic)")
+        else:
+            print(warn + " offline now - Australian neural voice needs internet")
+    else:
+        print(warn + " edge_tts not installed - reinstall E.V. to get the Australian voice")
+
+    # 5. Microphone
+    try:
+        import sounddevice as sd
+
+        ins = [d for d in sd.query_devices() if d["max_input_channels"] > 0]
+        if ins:
+            print(ok + f" {len(ins)} microphone input(s) found (run `ev mic-test` to verify)")
+        else:
+            print(bad + " no microphone inputs found - plug one in, then `ev devices`")
+            problems += 1
+    except Exception as e:
+        print(warn + f" couldn't query audio devices: {e}")
+
+    # 6. System-control helpers
+    for tool, why in (("xdg-open", "open websites"), ("wpctl", "volume"), ("playerctl", "media"),
+                      ("gnome-extensions", "GNOME extensions")):
+        mark = ok if shutil.which(tool) else warn
+        note = "" if shutil.which(tool) else f" (install for: {why})"
+        print(f"{mark} {tool}{note}")
+
+    print()
+    if problems == 0:
+        print("All clear. Say \"E.V.\" or run `ev gui`.")
+    else:
+        print(f"{problems} thing(s) need fixing above. Fix them and run `ev doctor` again.")
+        sys.exit(1)
+
+
+def _test_api_key(cfg: Config) -> str | None:
+    """Return None if the key works, else a short error string."""
+    import anthropic
+
+    try:
+        client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
+        client.messages.create(
+            model=cfg.model,
+            max_tokens=4,
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        return None
+    except anthropic.AuthenticationError:
+        return "invalid API key (401)"
+    except anthropic.NotFoundError:
+        return f"your account can't access model {cfg.model} - try claude-sonnet-5 in the config"
+    except anthropic.APIConnectionError:
+        return "couldn't reach Anthropic (network/proxy?)"
+    except Exception as e:  # noqa: BLE001 - report whatever went wrong
+        return str(e)[:120]
+
+
+def _test_edge_voice(cfg: Config) -> bool:
+    import subprocess
+    import sys as _sys
+    import tempfile
+    from pathlib import Path as _Path
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = _Path(tmp) / "t.mp3"
+            subprocess.run(
+                [_sys.executable, "-m", "edge_tts", "--voice", cfg.edge_voice,
+                 "--text", "test", "--write-media", str(out)],
+                check=True, capture_output=True, timeout=30,
+            )
+            return out.exists() and out.stat().st_size > 0
+    except Exception:
+        return False
 
 
 def cmd_daemon(args: argparse.Namespace) -> None:
@@ -345,6 +498,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("init", help="Write default config and generate the control token").set_defaults(func=cmd_init)
+
+    p_key = sub.add_parser("set-key", help="Save your Anthropic API key (fixes 'can't reach my brain')")
+    p_key.add_argument("key", nargs="?", help="The sk-ant-... key (omit to be prompted, hidden)")
+    p_key.set_defaults(func=cmd_set_key)
+
+    sub.add_parser("doctor", help="Check everything E.V. needs and report problems").set_defaults(func=cmd_doctor)
     sub.add_parser("daemon", help="Run E.V. in the foreground (wake word + API + GUI)").set_defaults(func=cmd_daemon)
 
     p_ask = sub.add_parser("ask", help="Send a text question/command to a running E.V. (works over SSH)")

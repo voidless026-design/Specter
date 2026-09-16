@@ -15,7 +15,7 @@ import logging
 
 import anthropic
 
-from ev_assistant.config import Config
+from ev_assistant.config import Config, looks_like_real_key
 from ev_assistant.knowledge import Knowledge
 from ev_assistant.memory import Memory
 from ev_assistant.net import is_online
@@ -35,7 +35,13 @@ class Brain:
         self.cfg = cfg
         self.memory = memory
         self.knowledge = knowledge or Knowledge(cfg.knowledge_path)
-        self.client = anthropic.Anthropic(api_key=cfg.anthropic_api_key) if cfg.anthropic_api_key else None
+        # Only build a client for a real key - a placeholder/empty key would
+        # otherwise produce a confusing 401 instead of a clean offline fallback.
+        self.client = (
+            anthropic.Anthropic(api_key=cfg.anthropic_api_key)
+            if looks_like_real_key(cfg.anthropic_api_key)
+            else None
+        )
 
     def respond(self, user_text: str, confirm: ConfirmFn | None = None) -> str:
         """Answer/act on `user_text`, recording the exchange in memory."""
@@ -43,11 +49,20 @@ class Brain:
         if self._use_online():
             reply = self._respond_online(user_text, executor)
         else:
-            reply = OfflineBrain(self.cfg, self.knowledge, executor).respond(user_text)
+            reply = OfflineBrain(
+                self.cfg, self.knowledge, executor, reason=self._offline_reason()
+            ).respond(user_text)
 
         self.memory.add_turn("user", user_text)
         self.memory.add_turn("assistant", reply)
         return reply
+
+    def _offline_reason(self) -> str:
+        # Distinguish "no valid API key" from "genuinely offline" so the
+        # spoken guidance points at the right fix.
+        if self.client is None and self.cfg.offline_mode != "offline":
+            return "no_key"
+        return "offline"
 
     def _use_online(self) -> bool:
         if self.cfg.offline_mode == "offline" or self.client is None:

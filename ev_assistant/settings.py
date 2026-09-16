@@ -15,13 +15,19 @@ from pathlib import Path
 EDITABLE: dict[tuple[str, str], str] = {
     ("personality", "humor"): "int",
     ("personality", "honesty"): "int",
+    ("personality", "sarcasm"): "int",
+    ("personality", "warmth"): "int",
+    ("personality", "formality"): "int",
     ("personality", "verbosity"): "str",
+    ("personality", "address_as"): "str",
     ("personality", "custom_instructions"): "str",
     ("voice", "engine"): "str",
     ("voice", "edge_voice"): "str",
     ("voice", "rate"): "int",
     ("permissions", "tier"): "str",
     ("offline", "mode"): "str",
+    ("ui", "theme"): "str",
+    ("ui", "accent"): "str",
 }
 
 

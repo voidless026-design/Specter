@@ -67,14 +67,21 @@ session, and running as root would both break her audio and be dangerous
 
 Then:
 
-1. Edit `~/.config/ev-assistant/env` and set `ANTHROPIC_API_KEY`
+1. Set your Anthropic API key: `ev set-key sk-ant-...`
    (from <https://console.anthropic.com/settings/keys>). She can also run
    fully offline - set `offline.mode = "offline"` in the config and skip the key.
 2. `systemctl --user start ev-assistant`
-3. `journalctl --user -u ev-assistant -f` to watch startup (first run
-   downloads a ~40MB offline speech model).
-4. Check your mic before relying on voice: `ev mic-test`.
+3. **Run `ev doctor`** - it checks the key (with a real test call), audio,
+   the Australian voice, the mic, and system tools, and tells you exactly
+   what to fix. This is the fastest way to get to a fully working setup.
+4. `ev mic-test` to confirm the microphone and wake word.
 5. Say "Hey E.V." and wait for "Go ahead."
+
+> **"I can't reach my brain right now"** means the API key is missing or
+> still the placeholder. Fix it with `ev set-key sk-ant-...`, restart
+> (`systemctl --user restart ev-assistant`), and run `ev doctor` to confirm.
+> **Robotic (not Australian) voice** means the neural voice isn't reaching
+> Microsoft's servers or there's no audio player - `ev doctor` says which.
 
 Uninstall with `bash scripts/uninstall-fedora.sh`.
 

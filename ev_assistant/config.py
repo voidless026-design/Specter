@@ -41,6 +41,16 @@ DEFAULT_FEEDS = [
 
 DEFAULT_FORBIDDEN = ["rm -rf /", "mkfs", "dd if=", ":(){", "shutdown -h now"]
 
+# The placeholder `ev init` writes. A key equal to this (or empty, or the
+# wrong prefix) is treated as "no key" so E.V. runs offline with a clear
+# message instead of a confusing 401 from Claude.
+API_KEY_PLACEHOLDER = "sk-ant-your-key-here"
+
+
+def looks_like_real_key(key: str) -> bool:
+    key = (key or "").strip()
+    return bool(key) and key != API_KEY_PLACEHOLDER and key.startswith("sk-ant-")
+
 _DEFAULT_TOML = """\
 # E.V. configuration. Secrets (ANTHROPIC_API_KEY, EV_CONTROL_TOKEN) are NOT
 # stored here - they live in the `env` file next to this one.
@@ -54,12 +64,18 @@ effort = "low"
 max_tokens = 1024
 
 [personality]
-# 0-100 sliders that shape E.V.'s system prompt.
-humor = 65
-honesty = 90
+# 0-100 dials that shape E.V.'s spoken personality.
+humor = 65        # dry wit and playfulness
+honesty = 90      # how bluntly she states hard truths / uncertainty
+sarcasm = 45      # bite and edge; pairs with humor
+warmth = 70       # affection and personal loyalty toward you
+formality = 25    # 0 = casual and familiar, 100 = crisp and professional
 verbosity = "concise"  # concise | normal
+# How E.V. addresses you (used to make her feel loyal and personal). e.g.
+# your name, "boss", "chief". Blank = no set form of address.
+address_as = ""
 # Free-text extra instructions appended to her persona. Say anything you like:
-# "call me boss", "never apologise", "be blunter when I'm wrong".
+# "call me boss", "never apologise", "take my side in an argument".
 custom_instructions = ""
 
 [wake_word]
@@ -121,6 +137,13 @@ port = 8765
 remote_host = ""
 remote_port = 0
 
+[ui]
+# GUI theme. Presets: rose (black + dark pink, default), amber, ice, toxic,
+# custom. With "custom", `accent` sets the neon colour (any CSS hex/color).
+# You can also change these live from the GUI's THEME panel.
+theme = "rose"
+accent = "#ff2a6d"
+
 [data_feeds]
 feeds = {feeds}
 interval_minutes = 30
@@ -140,7 +163,11 @@ class Config:
 
     humor: int = 65
     honesty: int = 90
+    sarcasm: int = 45
+    warmth: int = 70
+    formality: int = 25
     verbosity: str = "concise"
+    address_as: str = ""
     custom_instructions: str = ""
 
     wake_names: list[str] = field(default_factory=lambda: list(DEFAULT_WAKE_NAMES))
@@ -167,6 +194,9 @@ class Config:
     control_port: int = 8765
     remote_host: str = ""
     remote_port: int = 0
+
+    ui_theme: str = "rose"
+    ui_accent: str = "#ff2a6d"
 
     feeds: list[str] = field(default_factory=lambda: list(DEFAULT_FEEDS))
     feed_interval_minutes: int = 30
@@ -235,6 +265,28 @@ def read_env_file(path: Path | None = None) -> dict[str, str]:
     return values
 
 
+def write_env_var(name: str, value: str, path: Path | None = None) -> Path:
+    """Set one KEY=VALUE in the env file, preserving the others. chmod 600."""
+    path = path or env_file_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    values = read_env_file(path)
+    values[name] = value
+    # Keep the two well-known keys first and in a stable order.
+    ordered = ["ANTHROPIC_API_KEY", "EV_CONTROL_TOKEN"]
+    lines = []
+    for key in ordered:
+        if key in values:
+            lines.append(f"{key}={values.pop(key)}")
+    for key, val in values.items():
+        lines.append(f"{key}={val}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        path.chmod(0o600)
+    except OSError:
+        pass
+    return path
+
+
 def write_default_config(path: Path | None = None) -> Path:
     """Write the commented default config file if one doesn't already exist."""
     path = path or config_path()
@@ -270,6 +322,7 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
     perms = raw.get("permissions", {})
     offline = raw.get("offline", {})
     control = raw.get("control_api", {})
+    ui = raw.get("ui", {})
     feeds_section = raw.get("data_feeds", {})
 
     input_device: str | int | None = audio.get("input_device") or None
@@ -294,7 +347,11 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         max_tokens=int(brain.get("max_tokens", 1024)),
         humor=int(personality.get("humor", 65)),
         honesty=int(personality.get("honesty", 90)),
+        sarcasm=int(personality.get("sarcasm", 45)),
+        warmth=int(personality.get("warmth", 70)),
+        formality=int(personality.get("formality", 25)),
         verbosity=personality.get("verbosity", "concise"),
+        address_as=personality.get("address_as", ""),
         custom_instructions=personality.get("custom_instructions", ""),
         wake_names=wake.get("names", list(DEFAULT_WAKE_NAMES)),
         wake_prefixes=wake.get("prefixes", list(DEFAULT_WAKE_PREFIXES)),
@@ -316,6 +373,8 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         control_port=int(control.get("port", 8765)),
         remote_host=control.get("remote_host", ""),
         remote_port=int(control.get("remote_port", 0)),
+        ui_theme=ui.get("theme", "rose"),
+        ui_accent=ui.get("accent", "#ff2a6d"),
         feeds=feeds_section.get("feeds", list(DEFAULT_FEEDS)),
         feed_interval_minutes=int(feeds_section.get("interval_minutes", 30)),
         weather_location=(feeds_section.get("weather_location") or None),
@@ -326,11 +385,12 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
 def validate_for_daemon(cfg: Config) -> list[str]:
     """Human-readable problems that block starting the daemon."""
     problems = []
-    if not cfg.anthropic_api_key and cfg.offline_mode != "offline":
+    if not looks_like_real_key(cfg.anthropic_api_key) and cfg.offline_mode != "offline":
         problems.append(
-            f"ANTHROPIC_API_KEY is not set. Put it in {env_file_path()} "
-            "(get a key at https://console.anthropic.com/settings/keys), or set "
-            'offline.mode = "offline" in config.toml to run without Claude.'
+            "ANTHROPIC_API_KEY is missing or still the placeholder. Set it with "
+            "`ev set-key sk-ant-...` (or edit " + str(env_file_path()) + "), "
+            'or set offline.mode = "offline" in config.toml to run without Claude. '
+            "Run `ev doctor` to check."
         )
     if not cfg.control_token:
         problems.append(

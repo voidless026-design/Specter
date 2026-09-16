@@ -22,7 +22,7 @@ from pydantic import BaseModel
 from ev_assistant.audio.tts import Voice
 from ev_assistant.brain import Brain
 from ev_assistant.bus import StateBus
-from ev_assistant.config import Config, config_path
+from ev_assistant.config import Config, config_path, looks_like_real_key
 from ev_assistant.data_feeds import DataFeedLoop
 from ev_assistant.knowledge import Knowledge
 from ev_assistant.memory import Memory
@@ -83,10 +83,17 @@ def create_app(
 
     @app.get("/status")
     def get_status(_: None = Depends(require_token)) -> dict:
+        if looks_like_real_key(cfg.anthropic_api_key):
+            brain_status = "online" if cfg.offline_mode != "offline" else "offline_forced"
+        elif cfg.offline_mode == "offline":
+            brain_status = "offline_forced"
+        else:
+            brain_status = "no_key"
         return {
             "state": status.state,
             "wake_word_ready": status.wake_word_ready,
             "model": cfg.model,
+            "brain_status": brain_status,
             "permission_tier": cfg.permission_tier,
             "offline_mode": cfg.offline_mode,
             "fact_count": memory.fact_count(),
@@ -131,13 +138,19 @@ def create_app(
         return {
             "personality.humor": cfg.humor,
             "personality.honesty": cfg.honesty,
+            "personality.sarcasm": cfg.sarcasm,
+            "personality.warmth": cfg.warmth,
+            "personality.formality": cfg.formality,
             "personality.verbosity": cfg.verbosity,
+            "personality.address_as": cfg.address_as,
             "personality.custom_instructions": cfg.custom_instructions,
             "voice.engine": cfg.voice_engine,
             "voice.edge_voice": cfg.edge_voice,
             "voice.rate": cfg.tts_rate,
             "permissions.tier": cfg.permission_tier,
             "offline.mode": cfg.offline_mode,
+            "ui.theme": cfg.ui_theme,
+            "ui.accent": cfg.ui_accent,
         }
 
     @app.patch("/settings")

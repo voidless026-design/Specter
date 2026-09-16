@@ -16,9 +16,11 @@ failure in one is a clean fall-through to the next instead of a crash.
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -30,6 +32,20 @@ logger = logging.getLogger(__name__)
 
 # Audio players tried in order, first one present wins.
 _PLAYERS = ["ffplay", "mpv", "paplay", "aplay", "mpg123"]
+
+
+def _venv_which(name: str) -> str | None:
+    """Find an executable on PATH or in the running interpreter's bin dir.
+
+    Console scripts like `edge-tts` and `piper` live in the venv's bin, which
+    is NOT on PATH when the daemon is launched by systemd - so a plain
+    shutil.which misses them and the voice silently degrades to espeak.
+    """
+    found = shutil.which(name)
+    if found:
+        return found
+    candidate = Path(sys.executable).parent / name
+    return str(candidate) if candidate.exists() else None
 
 
 def _find_player(for_mp3: bool) -> list[str] | None:
@@ -91,22 +107,32 @@ class Voice:
     # -- engines ------------------------------------------------------
 
     def _say_edge(self, text: str) -> bool:
-        edge = shutil.which("edge-tts")
-        if not edge:
+        if importlib.util.find_spec("edge_tts") is None:
+            logger.info("edge_tts not installed; skipping the Australian neural voice")
             return False
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "ev.mp3"
-            cmd = [edge, "--voice", self.cfg.edge_voice, "--text", text, "--write-media", str(out)]
+            # Run as a module through this interpreter so it works regardless
+            # of PATH (the systemd service PATH omits the venv bin).
+            cmd = [sys.executable, "-m", "edge_tts", "--voice", self.cfg.edge_voice,
+                   "--text", text, "--write-media", str(out)]
             rate_pct = round((self.cfg.tts_rate / 175.0 - 1.0) * 100)
             if rate_pct:
-                cmd += ["--rate", f"{rate_pct:+d}%"]
-            subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+                # Use the --rate=VALUE form: a bare "-10%" would be parsed as
+                # a flag by edge-tts's argument parser.
+                cmd.append(f"--rate={rate_pct:+d}%")
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+            except subprocess.CalledProcessError as e:
+                logger.warning("edge-tts failed (%s); falling back", (e.stderr or b"").decode()[:200])
+                return False
             if not out.exists() or out.stat().st_size == 0:
+                logger.warning("edge-tts produced no audio; falling back")
                 return False
             return self._play(out, is_mp3=True)
 
     def _say_piper(self, text: str) -> bool:
-        piper = shutil.which("piper")
+        piper = _venv_which("piper")
         model = self._piper_model_path()
         if not piper or not model:
             return False
@@ -163,16 +189,18 @@ class Voice:
         return None
 
     def _piper_ready(self) -> bool:
-        return shutil.which("piper") is not None and self._piper_model_path() is not None
+        return _venv_which("piper") is not None and self._piper_model_path() is not None
 
 
 def list_online_voices(filter_locale: str | None = "en-AU") -> list[str]:
     """Return edge-tts voice short-names, optionally filtered by locale prefix."""
-    edge = shutil.which("edge-tts")
-    if not edge:
+    if importlib.util.find_spec("edge_tts") is None:
         return []
     try:
-        proc = subprocess.run([edge, "--list-voices"], capture_output=True, text=True, timeout=30)
+        proc = subprocess.run(
+            [sys.executable, "-m", "edge_tts", "--list-voices"],
+            capture_output=True, text=True, timeout=30,
+        )
     except Exception:
         return []
     voices = []
