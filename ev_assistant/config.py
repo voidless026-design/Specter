@@ -198,6 +198,22 @@ personal_namespace_boost = 1.25
 routed_namespace_boost = 1.0
 other_namespace_weight = 0.6
 
+# Ingest-time enrichment. Both run in the background after a document lands,
+# so they never slow a crawl down - but both cost a model call per document,
+# which is real money at scale and free on local Ollama. Turn them off if you
+# are ingesting tens of thousands of pages through a paid API.
+#   summaries - 3-5 sentences per document. Lets E.V. cite a source without
+#               pulling whole chunks into the answer.
+#   facts     - one-line factual claims pulled into a searchable table. For
+#               factual questions these beat prose: a row saying "Tungsten
+#               melts at 3422 C" is worth more than the paragraph holding it.
+enrich_summaries = true
+enrich_facts = true
+max_facts_per_document = 12
+enrich_batch_size = 4
+# How much of a long document the model is shown when enriching it.
+enrich_chars = 6000
+
 [retrieval.namespaces]
 # Send particular sources to a namespace at ingest time. First match wins;
 # a bare string matches anywhere in the URL or path, "type:<x>" matches the
@@ -293,6 +309,11 @@ class Config:
     personal_namespace_boost: float = 1.25
     routed_namespace_boost: float = 1.0
     other_namespace_weight: float = 0.6
+    enrich_summaries: bool = True
+    enrich_facts: bool = True
+    max_facts_per_document: int = 12
+    enrich_batch_size: int = 4
+    enrich_chars: int = 6000
     namespace_rules: dict[str, str] = field(default_factory=dict)
 
     control_host: str = "127.0.0.1"
@@ -502,6 +523,11 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         personal_namespace_boost=float(retrieval.get("personal_namespace_boost", 1.25)),
         routed_namespace_boost=float(retrieval.get("routed_namespace_boost", 1.0)),
         other_namespace_weight=float(retrieval.get("other_namespace_weight", 0.6)),
+        enrich_summaries=bool(retrieval.get("enrich_summaries", True)),
+        enrich_facts=bool(retrieval.get("enrich_facts", True)),
+        max_facts_per_document=int(retrieval.get("max_facts_per_document", 12)),
+        enrich_batch_size=int(retrieval.get("enrich_batch_size", 4)),
+        enrich_chars=int(retrieval.get("enrich_chars", 6000)),
         # [retrieval.namespaces] is a table of source pattern -> namespace.
         namespace_rules={str(k): str(v) for k, v in retrieval.get("namespaces", {}).items()},
         control_host=control.get("host", "127.0.0.1"),
