@@ -519,11 +519,14 @@ def cmd_import(args: argparse.Namespace) -> None:
 
 
 def cmd_learn(args: argparse.Namespace) -> None:
-    from ev_assistant import ingest
-    from ev_assistant.knowledge import Knowledge
+    from ev_assistant.library import Library
+    from ev_assistant.migrate import migrate_if_needed
+    from ev_assistant.store import Store
 
     cfg = load_config()
-    kb = Knowledge(cfg.knowledge_path)
+    store = Store(cfg.store_path)
+    migrate_if_needed(cfg, store)
+    library = Library(cfg, store)
 
     # Explicit flags still win; otherwise the source type is sniffed.
     source = args.wikipedia or args.url or args.file or args.source
@@ -532,37 +535,47 @@ def cmd_learn(args: argparse.Namespace) -> None:
               file=sys.stderr)
         sys.exit(1)
 
-    total_added = 0
-    pages = 0
-    skipped = 0
+    def show(outcome) -> None:
+        if outcome.added:
+            print(f"  + {outcome.title}  ({outcome.chunks} chunks)")
+        else:
+            print(f"  = {outcome.title}  (already known)")
+
     try:
-        for doc in ingest.crawl(
+        report = library.learn(
             source,
             depth=args.depth,
             max_pages=args.max_pages,
             same_domain=not args.any_domain,
-        ):
-            added = kb.add_document(doc.title, doc.source, doc.text, force=args.force)
-            pages += 1
-            if added:
-                total_added += added
-                print(f"  + {doc.title}  ({added} passages)")
-            else:
-                skipped += 1
-                print(f"  = {doc.title}  (already known)")
+            force=args.force,
+            on_page=show,
+            enrich=not args.no_enrich,
+        )
     except KeyboardInterrupt:
-        print("\nStopped early.")
+        print("\nStopped early - what was stored is still searchable.")
+        return
     except Exception as e:
         print(f"Couldn't learn that: {e}", file=sys.stderr)
         sys.exit(1)
 
-    if pages == 0:
+    if report.pages == 0:
         print("Nothing was fetched.", file=sys.stderr)
         sys.exit(1)
-    summary = f"Learned {pages} page(s), {total_added} new passages"
-    if skipped:
-        summary += f", {skipped} already known"
-    print(f"{summary}. Knowledge base now holds {kb.passage_count()} passages.")
+
+    summary = f"Learned {report.pages} page(s), {report.chunks} new chunks"
+    if report.skipped:
+        summary += f", {report.skipped} already known"
+    print(summary + ".")
+    stats = store.stats()
+    if report.embedded:
+        print(f"Indexed {report.embedded} chunks for semantic search.")
+    elif stats["pending_chunks"]:
+        print(f"{stats['pending_chunks']} chunks still need vectors - "
+              f"run `ev reindex` once the embedding model is available.")
+    if report.enriched:
+        print(f"Summarised {report.enriched} document(s).")
+    print(f"Store now holds {stats['documents']} documents "
+          f"and {stats['chunks']} chunks.")
 
 
 # -- argument parsing -------------------------------------------------
@@ -620,6 +633,8 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Hard cap on pages fetched when crawling (default 20)")
     p_learn.add_argument("--any-domain", action="store_true",
                          help="When crawling, follow links off the starting domain too")
+    p_learn.add_argument("--no-enrich", action="store_true",
+                         help="Skip summaries and fact extraction (faster, no model calls)")
     p_learn.add_argument("--force", action="store_true",
                          help="Re-ingest even if the content is already known")
     p_learn.set_defaults(func=cmd_learn)

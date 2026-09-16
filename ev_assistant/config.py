@@ -253,6 +253,8 @@ rrf_k = 60
 # a long context is strongest at the edges, so burying the best evidence in
 # the middle wastes it.
 context_budget_tokens = 4000
+# How many chunks retrieval hands the brain per question.
+retrieval_k = 8
 
 [retrieval.namespaces]
 # Send particular sources to a namespace at ingest time. First match wins;
@@ -366,6 +368,7 @@ class Config:
     neighbor_window: int = 0
     rrf_k: int = 60
     context_budget_tokens: int = 4000
+    retrieval_k: int = 8
     namespace_rules: dict[str, str] = field(default_factory=dict)
 
     control_host: str = "127.0.0.1"
@@ -592,6 +595,7 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         neighbor_window=int(retrieval.get("neighbor_window", 0)),
         rrf_k=int(retrieval.get("rrf_k", 60)),
         context_budget_tokens=int(retrieval.get("context_budget_tokens", 4000)),
+        retrieval_k=int(retrieval.get("retrieval_k", 8)),
         # [retrieval.namespaces] is a table of source pattern -> namespace.
         namespace_rules={str(k): str(v) for k, v in retrieval.get("namespaces", {}).items()},
         control_host=control.get("host", "127.0.0.1"),

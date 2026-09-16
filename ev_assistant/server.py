@@ -41,6 +41,26 @@ def _brain_label(cfg: Config) -> str:
     return {"claude": "Claude", "openai": "Cloud", "ollama": "Ollama"}.get(cfg.brain_provider, "Ollama")
 
 
+def _store_summary(library) -> dict:
+    """A compact view of the retrieval store for the GUI's DATA panel."""
+    try:
+        stats = library.store.stats()
+    except Exception:
+        return {"available": False}
+    return {
+        "available": True,
+        "documents": stats["documents"],
+        "chunks": stats["chunks"],
+        "facts": stats["facts"],
+        "embedded_chunks": stats["embedded_chunks"],
+        "pending_chunks": stats["pending_chunks"],
+        "by_namespace": stats["by_namespace"],
+        "embedding_model": stats["embedding_model"],
+        "vector_search": stats["vec_available"],
+        "size_bytes": stats["size_bytes"],
+    }
+
+
 def _brain_status(cfg: Config) -> str:
     """ready | no_key | needs_ollama - a quick, no-network readiness guess."""
     if cfg.brain_provider == "claude":
@@ -87,8 +107,13 @@ def create_app(
     status: DaemonStatus,
     bus: StateBus,
     request_shutdown: Callable[[], None],
+    library=None,
 ) -> FastAPI:
     app = FastAPI(title="E.V. control API")
+    if library is None:
+        from ev_assistant.library import Library
+
+        library = Library(cfg)
 
     def token_ok(candidate: str | None) -> bool:
         if not cfg.control_token or not candidate:
@@ -115,6 +140,7 @@ def create_app(
             "offline_mode": cfg.offline_mode,
             "fact_count": memory.fact_count(),
             "knowledge_passages": knowledge.passage_count(),
+            "store": _store_summary(library),
             "last_feed_run_at": feed_loop.last_run_at,
             "last_feed_error": feed_loop.last_error,
         }
@@ -124,10 +150,18 @@ def create_app(
         # A typed request can pre-authorise destructive actions with
         # allow_destructive; otherwise they're refused (no voice to confirm).
         confirm = (lambda _desc: True) if body.allow_destructive else (lambda _desc: False)
-        reply = brain.respond(body.text, confirm=confirm)
+        result = brain.respond_detailed(body.text, confirm=confirm)
         if body.speak and voice is not None:
-            threading.Thread(target=voice.say, args=(reply,), daemon=True).start()
-        return {"reply": reply}
+            # Source tags are for reading, not for saying out loud.
+            threading.Thread(target=voice.say, args=(result.spoken,), daemon=True).start()
+        return {
+            "reply": result.text,
+            "spoken": result.spoken,
+            "provider": result.provider,
+            "citations": result.citations,
+            # Behind the same auth dependency as everything else here.
+            "retrieval_trace": result.retrieval,
+        }
 
     @app.post("/learn")
     def learn(body: LearnRequest, _: None = Depends(require_token)) -> dict:
@@ -146,9 +180,18 @@ def create_app(
             raise
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
-        source = body.value if body.kind != "text" else "typed"
-        added = knowledge.add_document(title, source, text)
-        return {"title": title, "passages_added": added}
+        source = body.value if body.kind != "text" else f"typed:{title}"
+        # Into the retrieval store, then indexed, so it's findable at once.
+        outcome = library.add(title, text, source)
+        embedded = library.index() if outcome.added else 0
+        if outcome.added:
+            library.enricher.enqueue(outcome.document_id)
+        return {
+            "title": title,
+            "chunks_added": outcome.chunks,
+            "embedded": embedded,
+            "already_known": outcome.skipped,
+        }
 
     @app.get("/settings")
     def get_settings(_: None = Depends(require_token)) -> dict:
