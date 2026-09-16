@@ -135,9 +135,9 @@ class OfflineBrain:
         if not context:
             if self.reason == "no_key":
                 return (
-                    "I can run commands and read my offline notes, but I need an Anthropic "
-                    "API key to actually talk things through. Set one with ev set-key, "
-                    "then restart me. Run ev doctor if you want me to check it."
+                    "I can run commands and read my offline notes, but my brain isn't set up "
+                    "to converse yet. Either install Ollama for a free local brain, or add an "
+                    "API key. Run ev doctor and I'll tell you exactly what's missing."
                 )
             return (
                 "I'm offline and I don't have anything on that in my knowledge base yet. "

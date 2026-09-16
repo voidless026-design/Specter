@@ -56,12 +56,39 @@ _DEFAULT_TOML = """\
 # stored here - they live in the `env` file next to this one.
 
 [brain]
-# Claude model used when online. claude-opus-5 is the most capable;
-# claude-sonnet-5 is faster and cheaper if the voice round-trip feels slow.
+# Which AI powers E.V. She can use any of three, and falls back to a local
+# Ollama model, then her offline notes, if the chosen one can't be reached:
+#   ollama - a model on THIS PC via Ollama. No API key, no cost, private, and
+#            works with or without internet. The default so she runs out of
+#            the box. Install Ollama (https://ollama.com) and `ollama pull
+#            llama3.1`. Use a tool-capable model (llama3.1, qwen2.5, mistral)
+#            if you want her to control your computer offline.
+#   claude - Anthropic Claude. Best quality. Needs a paid key in
+#            ANTHROPIC_API_KEY (set it with `ev set-key`).
+#   openai - any OpenAI-compatible endpoint (Groq, Google Gemini, OpenRouter,
+#            a local server...). Often a FREE key. Set openai_base_url +
+#            openai_model below and put the key in the env file as
+#            EV_OPENAI_API_KEY.
+provider = "ollama"
+max_tokens = 1024
+
+# -- ollama (default) --
+ollama_host = "http://127.0.0.1:11434"
+ollama_model = "llama3.1"
+
+# -- claude --
+# claude-opus-5 is most capable; claude-sonnet-5 is faster/cheaper.
 model = "claude-opus-5"
 # low | medium | high | xhigh | max - lower is faster, better for live voice.
 effort = "low"
-max_tokens = 1024
+
+# -- openai-compatible (Groq / Gemini / OpenRouter / local) --
+# Examples for openai_base_url:
+#   Groq:       https://api.groq.com/openai/v1
+#   Gemini:     https://generativelanguage.googleapis.com/v1beta/openai
+#   OpenRouter: https://openrouter.ai/api/v1
+openai_base_url = ""
+openai_model = ""
 
 [personality]
 # 0-100 dials that shape E.V.'s spoken personality.
@@ -122,12 +149,11 @@ confirm_destructive = true
 forbidden_patterns = {forbidden}
 
 [offline]
-# auto - Claude when the network is up, local knowledge when it isn't.
+# auto     - use the [brain] provider; fall back to local Ollama, then to
+#            reading your offline notes, if it can't be reached.
+# offline  - never use a cloud provider (claude/openai); use local Ollama and
+#            your offline notes only. Good for privacy or no-internet.
 mode = "auto"
-# Local model for offline answers, if you have Ollama installed (e.g. "llama3.2").
-# Blank means offline answers come straight from your knowledge base.
-ollama_model = ""
-ollama_host = "http://127.0.0.1:11434"
 
 [control_api]
 host = "127.0.0.1"
@@ -156,10 +182,20 @@ weather_location = ""
 class Config:
     anthropic_api_key: str
     control_token: str
+    openai_api_key: str = ""
 
-    model: str = "claude-opus-5"
-    effort: str = "low"
+    # Which brain: ollama (default, local, no key) | claude | openai
+    brain_provider: str = "ollama"
     max_tokens: int = 1024
+
+    model: str = "claude-opus-5"  # the Claude model
+    effort: str = "low"
+
+    ollama_host: str = "http://127.0.0.1:11434"
+    ollama_model: str = "llama3.1"
+
+    openai_base_url: str = ""
+    openai_model: str = ""
 
     humor: int = 65
     honesty: int = 90
@@ -187,8 +223,6 @@ class Config:
     forbidden_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_FORBIDDEN))
 
     offline_mode: str = "auto"
-    ollama_model: str = ""
-    ollama_host: str = "http://127.0.0.1:11434"
 
     control_host: str = "127.0.0.1"
     control_port: int = 8765
@@ -339,12 +373,23 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
     def secret(name: str) -> str:
         return os.environ.get(name) or file_env.get(name, "")
 
+    # Ollama settings live under [brain]; fall back to the old [offline]
+    # location so configs written by earlier versions still work.
+    ollama_host = brain.get("ollama_host") or offline.get("ollama_host") or "http://127.0.0.1:11434"
+    ollama_model = brain.get("ollama_model") or offline.get("ollama_model") or "llama3.1"
+
     return Config(
         anthropic_api_key=secret("ANTHROPIC_API_KEY"),
         control_token=secret("EV_CONTROL_TOKEN"),
+        openai_api_key=secret("EV_OPENAI_API_KEY"),
+        brain_provider=brain.get("provider", "ollama"),
         model=brain.get("model", "claude-opus-5"),
         effort=brain.get("effort", "low"),
         max_tokens=int(brain.get("max_tokens", 1024)),
+        ollama_host=ollama_host,
+        ollama_model=ollama_model,
+        openai_base_url=brain.get("openai_base_url", ""),
+        openai_model=brain.get("openai_model", ""),
         humor=int(personality.get("humor", 65)),
         honesty=int(personality.get("honesty", 90)),
         sarcasm=int(personality.get("sarcasm", 45)),
@@ -367,8 +412,6 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         confirm_destructive=bool(perms.get("confirm_destructive", True)),
         forbidden_patterns=perms.get("forbidden_patterns", list(DEFAULT_FORBIDDEN)),
         offline_mode=offline.get("mode", "auto"),
-        ollama_model=offline.get("ollama_model", ""),
-        ollama_host=offline.get("ollama_host", "http://127.0.0.1:11434"),
         control_host=control.get("host", "127.0.0.1"),
         control_port=int(control.get("port", 8765)),
         remote_host=control.get("remote_host", ""),
@@ -383,15 +426,14 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
 
 
 def validate_for_daemon(cfg: Config) -> list[str]:
-    """Human-readable problems that block starting the daemon."""
+    """Human-readable problems that block starting the daemon.
+
+    The daemon always starts - a missing brain isn't fatal because E.V. can
+    still act and read her offline notes - so only the control token is a
+    hard requirement. Missing brain credentials are surfaced by `ev doctor`
+    and at runtime instead.
+    """
     problems = []
-    if not looks_like_real_key(cfg.anthropic_api_key) and cfg.offline_mode != "offline":
-        problems.append(
-            "ANTHROPIC_API_KEY is missing or still the placeholder. Set it with "
-            "`ev set-key sk-ant-...` (or edit " + str(env_file_path()) + "), "
-            'or set offline.mode = "offline" in config.toml to run without Claude. '
-            "Run `ev doctor` to check."
-        )
     if not cfg.control_token:
         problems.append(
             f"EV_CONTROL_TOKEN is not set. Run `ev init` to generate one into {env_file_path()}."

@@ -208,6 +208,9 @@
       <button class="navbtn" data-view="persona" title="Personality">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M5 20c1-4 4-6 7-6s6 2 7 6"/></svg>PSYCHE
       </button>
+      <button class="navbtn" data-view="brain" title="Brain">
+        <svg viewBox="0 0 24 24"><path d="M9 3a4 4 0 00-4 4 3 3 0 00-1 5 3 3 0 002 5 3 3 0 006 0V5a2 2 0 00-3-2z"/><path d="M15 3a4 4 0 014 4 3 3 0 011 5 3 3 0 01-2 5"/></svg>BRAIN
+      </button>
       <button class="navbtn" data-view="voice" title="Voice">
         <svg viewBox="0 0 24 24"><path d="M12 3v18M7 8v8M17 8v8M3 11v2M21 11v2"/></svg>VOICE
       </button>
@@ -268,6 +271,26 @@
           <textarea id="custom" placeholder="e.g. always take my side; roast my bad ideas; never apologise"></textarea>
           <div style="margin-top:16px"><button class="act" id="savePersona">COMMIT</button></div>
           <div class="hint">Loyalty is always on — even at max sarcasm she stays on your side. Restart the daemon to apply.</div>
+        </section>
+
+        <!-- BRAIN -->
+        <section class="view pad" id="view-brain">
+          <h2 class="sec">Brain Core</h2>
+          <label>Active brain</label>
+          <select id="provider">
+            <option value="ollama">Ollama — local, no key, works offline (default)</option>
+            <option value="claude">Claude — best quality, needs a paid key</option>
+            <option value="openai">Cloud (Groq / Gemini / OpenRouter) — often a free key</option>
+          </select>
+          <div class="statline" style="margin-top:14px"><span>STATUS</span><b id="brainStatus">--</b></div>
+          <div class="statline"><span>MODEL</span><b id="brainModel">--</b></div>
+          <div style="margin-top:16px"><button class="act" id="saveBrain">SWITCH BRAIN</button></div>
+          <div class="hint">
+            Ollama needs <span class="mono">ollama pull llama3.1</span> and the Ollama app running —
+            no key, private, offline-capable. Claude needs <span class="mono">ev set-key sk-ant-...</span>.
+            Cloud needs <span class="mono">ev set-key --openai KEY</span> plus openai_base_url/openai_model
+            in the config. Run <span class="mono">ev doctor</span> to verify. Restart the daemon after switching.
+          </div>
         </section>
 
         <!-- VOICE -->
@@ -489,6 +512,7 @@
   async function saveVoice() {
     await patch({ "voice.engine": val("engine"), "voice.edge_voice": val("edgeVoice"), "voice.rate": +val("rate") }, "saveVoice");
   }
+  async function saveBrain() { await patch({ "brain.provider": val("provider") }, "saveBrain"); }
   async function saveTheme() {
     const hex = document.getElementById("accentPicker").value;
     try { localStorage.setItem("ev_accent", hex); } catch (e) {}
@@ -503,6 +527,7 @@
   }
   document.getElementById("savePersona").onclick = savePersona;
   document.getElementById("saveVoice").onclick = saveVoice;
+  document.getElementById("saveBrain").onclick = saveBrain;
   document.getElementById("saveTheme").onclick = saveTheme;
 
   // theme swatches
@@ -530,15 +555,24 @@
     if (!TOKEN) return;
     try {
       const s = await api("/status");
-      setText("brainLabel", s.brain_status === "online" ? "ONLINE" : s.brain_status === "no_key" ? "NO KEY" : "OFFLINE");
-      document.getElementById("brainDot").classList.toggle("off", s.brain_status !== "online");
+      const ready = s.brain_status === "ready";
+      setText("brainLabel", (s.brain_label || "--").toUpperCase());
+      document.getElementById("brainDot").classList.toggle("off", !ready);
       document.getElementById("wakeDot").classList.toggle("off", !s.wake_word_ready);
-      document.getElementById("keyBanner").style.display = s.brain_status === "no_key" ? "block" : "none";
+      // Banner only when the chosen brain needs setup.
+      const banner = document.getElementById("keyBanner");
+      if (!ready) {
+        banner.style.display = "block";
+        banner.innerHTML = s.provider === "ollama"
+          ? "Ollama model not set — run <code>ollama pull llama3.1</code> and start Ollama, or switch brain in the BRAIN tab."
+          : "Selected brain needs a key — open the BRAIN tab, or run <code>ev doctor</code>.";
+      } else { banner.style.display = "none"; }
       setText("ro-model", s.model); setText("ro-tier", s.permission_tier); setText("ro-net", s.offline_mode);
       setText("ro-mem", s.fact_count); setText("ro-data", s.knowledge_passages);
-      setText("d-brain", s.brain_status.toUpperCase()); setText("d-model", s.model);
+      setText("d-brain", (s.brain_label || "--") + " / " + (s.brain_status || "")); setText("d-model", s.model);
       setText("d-tier", s.permission_tier); setText("d-net", s.offline_mode);
       setText("d-mem", s.fact_count); setText("d-data", s.knowledge_passages); setText("kcount", s.knowledge_passages);
+      setText("brainStatus", (s.brain_status || "--").toUpperCase()); setText("brainModel", s.model);
     } catch (e) {}
   }
   async function loadSettings() {
@@ -546,6 +580,7 @@
     try {
       const s = await api("/settings");
       const set = (id, v) => { const e = document.getElementById(id); if (e != null && v != null) e.value = v; };
+      set("provider", s["brain.provider"]);
       ["humor","honesty","sarcasm","warmth","formality"].forEach((k) => {
         set(k, s["personality." + k]); setText("v-" + k, s["personality." + k]); });
       set("verbosity", s["personality.verbosity"]); set("address", s["personality.address_as"]);

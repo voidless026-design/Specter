@@ -48,6 +48,27 @@ control.
   her, a live transcript, and panels to tune her personality, voice, and
   permissions.
 
+## Choosing E.V.'s brain
+
+E.V. can run on any of three brains, set in `[brain] provider` (or the GUI
+**BRAIN** tab). She automatically falls back to a local Ollama model, then to
+reading her offline notes, if the chosen one can't be reached.
+
+| Provider | Key? | Cost | Notes |
+|---|---|---|---|
+| **ollama** (default) | none | free | A model on *your* PC. Private, works offline. Install [Ollama](https://ollama.com) + `ollama pull llama3.1`. Use a tool-capable model (llama3.1, qwen2.5, mistral) so she can control your computer. |
+| **claude** | paid | paid | Anthropic Claude - best quality. `ev set-key sk-ant-...`, then set provider to `claude`. |
+| **openai** | usually free | free tier | Any OpenAI-compatible endpoint: **Groq** (fast, free), **Google Gemini**, **OpenRouter**, a local server. `ev set-key --openai KEY`, set `openai_base_url` + `openai_model`. |
+
+She ships defaulting to **Ollama** so she works with no API key at all - install
+Ollama (the Fedora installer offers to do this for you) and she can converse,
+online or off. Switch to Claude whenever you buy credits; nothing else changes.
+
+Example base URLs for the `openai` provider:
+- Groq: `https://api.groq.com/openai/v1`
+- Gemini: `https://generativelanguage.googleapis.com/v1beta/openai`
+- OpenRouter: `https://openrouter.ai/api/v1`
+
 ## Fedora setup
 
 ```bash
@@ -65,23 +86,25 @@ login. It runs as **your user**, not root - she needs your desktop's audio
 session, and running as root would both break her audio and be dangerous
 (see [Security](#security)).
 
-Then:
+The installer offers to install Ollama and pull a model, so out of the box she
+has a free local brain (no API key). Then:
 
-1. Set your Anthropic API key: `ev set-key sk-ant-...`
-   (from <https://console.anthropic.com/settings/keys>). She can also run
-   fully offline - set `offline.mode = "offline"` in the config and skip the key.
-2. `systemctl --user start ev-assistant`
-3. **Run `ev doctor`** - it checks the key (with a real test call), audio,
-   the Australian voice, the mic, and system tools, and tells you exactly
-   what to fix. This is the fastest way to get to a fully working setup.
-4. `ev mic-test` to confirm the microphone and wake word.
-5. Say "Hey E.V." and wait for "Go ahead."
+1. `systemctl --user start ev-assistant`
+2. **Run `ev doctor`** - it checks the active brain (Ollama running + model
+   pulled, or a live key test), audio, the Australian voice, the mic, and
+   system tools, and tells you exactly what to fix. Fastest path to a working
+   setup.
+3. `ev mic-test` to confirm the microphone and wake word.
+4. Say "Hey E.V." and wait for "Go ahead."
 
-> **"I can't reach my brain right now"** means the API key is missing or
-> still the placeholder. Fix it with `ev set-key sk-ant-...`, restart
-> (`systemctl --user restart ev-assistant`), and run `ev doctor` to confirm.
-> **Robotic (not Australian) voice** means the neural voice isn't reaching
-> Microsoft's servers or there's no audio player - `ev doctor` says which.
+To use Claude instead (when you have credits): `ev set-key sk-ant-...`, set
+`[brain] provider = "claude"` (or the GUI BRAIN tab), restart, `ev doctor`.
+
+> **"my brain isn't set up to converse"** means the chosen brain isn't ready:
+> for Ollama, install it and `ollama pull llama3.1`; for Claude/cloud, add the
+> key. `ev doctor` pinpoints it. **Robotic (not Australian) voice** means the
+> neural voice isn't reaching Microsoft's servers or there's no audio player -
+> `ev doctor` says which.
 
 Uninstall with `bash scripts/uninstall-fedora.sh`.
 

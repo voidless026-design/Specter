@@ -78,19 +78,25 @@ def test_input_device_name_stays_a_string(tmp_path):
     assert load_config(path, env_path=tmp_path / "no-env").input_device == "USB Microphone"
 
 
-def test_validate_flags_missing_secrets(cfg):
+def test_validate_only_requires_control_token(cfg):
+    # The brain is optional (Ollama needs no key; a missing brain isn't fatal),
+    # so only the control token blocks startup now.
     cfg.anthropic_api_key = ""
     cfg.control_token = ""
-    assert len(validate_for_daemon(cfg)) == 2
-
-
-def test_validate_allows_offline_without_api_key(cfg):
-    cfg.anthropic_api_key = ""
-    cfg.offline_mode = "offline"
-    # Only the control token is required when running fully offline.
     problems = validate_for_daemon(cfg)
-    assert not any("ANTHROPIC_API_KEY" in p for p in problems)
+    assert len(problems) == 1
+    assert "EV_CONTROL_TOKEN" in problems[0]
 
 
-def test_validate_passes_when_secrets_set(cfg):
+def test_validate_passes_with_token_and_no_key(cfg):
+    cfg.anthropic_api_key = ""
     assert validate_for_daemon(cfg) == []
+
+
+def test_default_provider_is_ollama(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    path = tmp_path / "config.toml"
+    write_default_config(path)
+    cfg = load_config(path, env_path=tmp_path / "no-env")
+    assert cfg.brain_provider == "ollama"
+    assert cfg.ollama_model == "llama3.1"

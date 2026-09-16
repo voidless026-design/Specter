@@ -37,6 +37,21 @@ echo "==> Writing default config and generating the control token"
 "$INSTALL_DIR/venv/bin/ev" init
 chmod 600 "$CONFIG_DIR/env" 2>/dev/null || true
 
+# E.V.'s default brain is a local Ollama model - no API key, no cost, works
+# offline. Offer to install it so she can converse out of the box.
+if ! command -v ollama >/dev/null 2>&1; then
+  echo ""
+  read -r -p "Install Ollama so E.V. has a free local brain (no API key)? [Y/n] " reply
+  if [[ ! "$reply" =~ ^[Nn]$ ]]; then
+    echo "==> Installing Ollama..."
+    curl -fsSL https://ollama.com/install.sh | sh || echo "  (Ollama install failed - install it yourself from https://ollama.com)"
+  fi
+fi
+if command -v ollama >/dev/null 2>&1; then
+  echo "==> Pulling a tool-capable local model (llama3.1, ~4.7GB - Ctrl-C to skip)..."
+  ollama pull llama3.1 || echo "  (skip/failed - run 'ollama pull llama3.1' later)"
+fi
+
 echo "==> Installing systemd --user unit"
 mkdir -p "$UNIT_DIR"
 sed \

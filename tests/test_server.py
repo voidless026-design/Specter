@@ -77,7 +77,8 @@ def test_status_returns_expected_fields(cfg, memory):
     assert body["state"] == "listening"
     assert body["wake_word_ready"] is True
     assert body["fact_count"] == 1
-    assert body["model"] == cfg.model
+    assert body["provider"] == cfg.brain_provider
+    assert "brain_status" in body
 
 
 def test_status_with_no_control_token_configured_returns_503(cfg, memory):

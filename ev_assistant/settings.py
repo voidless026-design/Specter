@@ -13,6 +13,7 @@ from pathlib import Path
 
 # (section, key) -> value type, for the fields the GUI may change.
 EDITABLE: dict[tuple[str, str], str] = {
+    ("brain", "provider"): "str",
     ("personality", "humor"): "int",
     ("personality", "honesty"): "int",
     ("personality", "sarcasm"): "int",

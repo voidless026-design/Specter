@@ -33,26 +33,24 @@ def test_write_env_var_creates_file(tmp_path):
     assert read_env_file(env)["EV_CONTROL_TOKEN"] == "generated"
 
 
-def test_brain_status_no_key(cfg, memory, knowledge):
-    from ev_assistant.brain import Brain
+def test_claude_provider_unavailable_without_key(cfg):
+    from ev_assistant.providers import ClaudeProvider
 
     cfg.anthropic_api_key = "sk-ant-your-key-here"  # placeholder
-    cfg.offline_mode = "auto"
-    brain = Brain(cfg, memory, knowledge)
-    # Placeholder key => no client => offline path with a key-specific message.
-    assert brain.client is None
-    reply = brain.respond("what is the capital of France")
-    assert "api key" in reply.lower() or "set-key" in reply.lower()
+    assert ClaudeProvider().available(cfg) is False
+    cfg.anthropic_api_key = "sk-ant-realish"
+    assert ClaudeProvider().available(cfg) is True
 
 
-def test_offline_no_key_still_runs_commands(cfg, memory, knowledge):
+def test_offline_no_key_still_runs_commands(cfg, memory, knowledge, monkeypatch):
     from ev_assistant.brain import Brain
 
+    # No brain reachable, but a command should still be executed by the
+    # offline rule parser rather than returning "need a key".
+    cfg.brain_provider = "claude"
     cfg.anthropic_api_key = ""
-    cfg.offline_mode = "auto"
     cfg.permission_tier = "safe"
+    monkeypatch.setattr("ev_assistant.brain.build_chain", lambda c: [])
     brain = Brain(cfg, memory, knowledge)
     reply = brain.respond("open firefox")
-    # A command still works offline even without a key (executor tries to run
-    # it); the reply is the executor's message, not the "need a key" text.
-    assert "api key" not in reply.lower()
+    assert "brain" not in reply.lower() or "firefox" in reply.lower()

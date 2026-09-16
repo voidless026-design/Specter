@@ -79,22 +79,33 @@ def cmd_init(args: argparse.Namespace) -> None:
 
 
 def cmd_set_key(args: argparse.Namespace) -> None:
-    key = (args.key or "").strip()
-    if not key:
-        import getpass
+    import getpass
 
-        key = getpass.getpass("Paste your Anthropic API key (hidden): ").strip()
+    if args.openai:
+        key = (args.key or "").strip() or getpass.getpass("Paste your cloud API key (hidden): ").strip()
+        if not key:
+            print("No key given.", file=sys.stderr)
+            sys.exit(1)
+        path = write_env_var("EV_OPENAI_API_KEY", key)
+        print(f"Saved your cloud (Groq/Gemini/OpenRouter) key to {path}.")
+        print("Set [brain] provider = \"openai\" and openai_base_url/openai_model in the config,")
+        print("then restart E.V. and run `ev doctor`.")
+        return
+
+    key = (args.key or "").strip() or getpass.getpass("Paste your Anthropic API key (hidden): ").strip()
     if not looks_like_real_key(key):
         print(
             "That doesn't look like an Anthropic key (they start with 'sk-ant-'). "
-            "Get one at https://console.anthropic.com/settings/keys.",
+            "Get one at https://console.anthropic.com/settings/keys. "
+            "For a free cloud key (Groq/Gemini) use: ev set-key --openai KEY.",
             file=sys.stderr,
         )
         sys.exit(1)
     path = write_env_var("ANTHROPIC_API_KEY", key)
-    print(f"Saved your API key to {path}.")
-    print("Now restart E.V.:  systemctl --user restart ev-assistant   (or restart `ev daemon`)")
-    print("Then check it:      ev doctor")
+    print(f"Saved your Anthropic key to {path}.")
+    print("To use it, set [brain] provider = \"claude\" in the config (or the GUI BRAIN panel),")
+    print("then restart E.V.:  systemctl --user restart ev-assistant")
+    print("Check it:           ev doctor")
 
 
 def cmd_doctor(args: argparse.Namespace) -> None:
@@ -115,20 +126,9 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     print(ok + " control token set" if cfg.control_token else bad + " EV_CONTROL_TOKEN missing (run `ev init`)")
     problems += 0 if cfg.control_token else 1
 
-    # 2. API key - real check with a tiny call.
-    if cfg.offline_mode == "offline":
-        print(warn + " offline.mode = offline - Claude is intentionally disabled")
-    elif not looks_like_real_key(cfg.anthropic_api_key):
-        print(bad + " ANTHROPIC_API_KEY missing or placeholder - set it with `ev set-key`")
-        problems += 1
-    else:
-        print("  ... testing the API key against Claude ...")
-        err = _test_api_key(cfg)
-        if err is None:
-            print(ok + f" API key works (model {cfg.model})")
-        else:
-            print(bad + f" API key rejected: {err}")
-            problems += 1
+    # 2. Brain provider - live check for the active one.
+    print(f"\nBrain provider: {cfg.brain_provider}")
+    problems += _check_brain(cfg, ok, bad, warn)
 
     # 3. Audio output (voice)
     players = [p for p in ("ffplay", "mpv", "paplay", "aplay", "mpg123") if shutil.which(p)]
@@ -188,8 +188,61 @@ def cmd_doctor(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def _check_brain(cfg: Config, ok: str, bad: str, warn: str) -> int:
+    """Print the active brain's health. Returns the number of problems."""
+    import httpx
+
+    provider = cfg.brain_provider
+    if provider == "ollama":
+        host = cfg.ollama_host.rstrip("/")
+        try:
+            tags = httpx.get(f"{host}/api/tags", timeout=3).json().get("models", [])
+        except Exception:
+            print(bad + f" Ollama isn't running at {host}")
+            print("         Install it (https://ollama.com), then: ollama serve &")
+            print(f"         and: ollama pull {cfg.ollama_model}")
+            return 1
+        names = [m.get("name", "").split(":")[0] for m in tags]
+        if cfg.ollama_model.split(":")[0] in names:
+            print(ok + f" Ollama running, model '{cfg.ollama_model}' is pulled")
+            return 0
+        print(bad + f" Ollama is running but '{cfg.ollama_model}' isn't pulled")
+        print(f"         Run: ollama pull {cfg.ollama_model}")
+        return 1
+
+    if provider == "claude":
+        if not looks_like_real_key(cfg.anthropic_api_key):
+            print(bad + " ANTHROPIC_API_KEY missing/placeholder - set it with `ev set-key`")
+            return 1
+        print("  ... testing the key against Claude ...")
+        err = _test_api_key(cfg)
+        if err is None:
+            print(ok + f" Claude works (model {cfg.model})")
+            return 0
+        print(bad + f" Claude rejected the key: {err}")
+        return 1
+
+    if provider == "openai":
+        if not (cfg.openai_base_url and cfg.openai_model):
+            print(bad + " openai_base_url / openai_model not set in the config")
+            return 1
+        if not cfg.openai_api_key:
+            print(warn + " EV_OPENAI_API_KEY not set (fine for a local/keyless endpoint)")
+        try:
+            httpx.get(cfg.openai_base_url.rstrip("/") + "/models",
+                      headers={"Authorization": f"Bearer {cfg.openai_api_key or 'none'}"}, timeout=5)
+            print(ok + f" endpoint reachable ({cfg.openai_base_url}, model {cfg.openai_model})")
+            return 0
+        except Exception:
+            print(warn + f" couldn't reach {cfg.openai_base_url} (it may still work for chat)")
+            return 0
+
+    print(bad + f" unknown provider '{provider}' - use ollama, claude, or openai")
+    return 1
+
+
 def _test_api_key(cfg: Config) -> str | None:
-    """Return None if the key works, else a short error string."""
+    """Return None if the Claude key works, else a short error string."""
     import anthropic
 
     try:
@@ -499,8 +552,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="Write default config and generate the control token").set_defaults(func=cmd_init)
 
-    p_key = sub.add_parser("set-key", help="Save your Anthropic API key (fixes 'can't reach my brain')")
-    p_key.add_argument("key", nargs="?", help="The sk-ant-... key (omit to be prompted, hidden)")
+    p_key = sub.add_parser("set-key", help="Save an API key (Anthropic, or --openai for a free cloud key)")
+    p_key.add_argument("key", nargs="?", help="The key (omit to be prompted, hidden)")
+    p_key.add_argument("--openai", action="store_true", help="Save a Groq/Gemini/OpenRouter key instead")
     p_key.set_defaults(func=cmd_set_key)
 
     sub.add_parser("doctor", help="Check everything E.V. needs and report problems").set_defaults(func=cmd_doctor)

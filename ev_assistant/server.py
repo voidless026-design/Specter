@@ -31,6 +31,27 @@ from ev_assistant.settings import apply_updates
 GUI_DIR = Path(__file__).parent / "gui"
 
 
+def _active_model(cfg: Config) -> str:
+    return {"claude": cfg.model, "openai": cfg.openai_model, "ollama": cfg.ollama_model}.get(
+        cfg.brain_provider, cfg.ollama_model
+    )
+
+
+def _brain_label(cfg: Config) -> str:
+    return {"claude": "Claude", "openai": "Cloud", "ollama": "Ollama"}.get(cfg.brain_provider, "Ollama")
+
+
+def _brain_status(cfg: Config) -> str:
+    """ready | no_key | needs_ollama - a quick, no-network readiness guess."""
+    if cfg.brain_provider == "claude":
+        return "ready" if looks_like_real_key(cfg.anthropic_api_key) else "no_key"
+    if cfg.brain_provider == "openai":
+        return "ready" if (cfg.openai_base_url and cfg.openai_model) else "no_key"
+    # ollama: a full reachability check needs the network; report config-level
+    # readiness here (a model name is set) and let `ev doctor` do the live probe.
+    return "ready" if cfg.ollama_model else "needs_ollama"
+
+
 class DaemonStatus:
     """Flags the voice loop writes and the control API reads. One writer,
     latest-value reads - no lock needed in CPython."""
@@ -83,17 +104,13 @@ def create_app(
 
     @app.get("/status")
     def get_status(_: None = Depends(require_token)) -> dict:
-        if looks_like_real_key(cfg.anthropic_api_key):
-            brain_status = "online" if cfg.offline_mode != "offline" else "offline_forced"
-        elif cfg.offline_mode == "offline":
-            brain_status = "offline_forced"
-        else:
-            brain_status = "no_key"
         return {
             "state": status.state,
             "wake_word_ready": status.wake_word_ready,
-            "model": cfg.model,
-            "brain_status": brain_status,
+            "provider": cfg.brain_provider,
+            "brain_label": _brain_label(cfg),
+            "brain_status": _brain_status(cfg),
+            "model": _active_model(cfg),
             "permission_tier": cfg.permission_tier,
             "offline_mode": cfg.offline_mode,
             "fact_count": memory.fact_count(),
@@ -136,6 +153,7 @@ def create_app(
     @app.get("/settings")
     def get_settings(_: None = Depends(require_token)) -> dict:
         return {
+            "brain.provider": cfg.brain_provider,
             "personality.humor": cfg.humor,
             "personality.honesty": cfg.honesty,
             "personality.sarcasm": cfg.sarcasm,
