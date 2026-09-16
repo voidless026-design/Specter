@@ -81,6 +81,11 @@ ollama_model = "llama3.1"
 model = "claude-opus-5"
 # low | medium | high | xhigh | max - lower is faster, better for live voice.
 effort = "low"
+# A small, cheap model for the mechanical jobs behind retrieval: deciding
+# whether a question needs the knowledge base at all, and rewriting "what
+# about its melting point?" into a standalone question. These run on every
+# question, so they should not cost Opus money. Blank = use `model` above.
+utility_model = "claude-haiku-4-5"
 
 # -- openai-compatible (Groq / Gemini / OpenRouter / local) --
 # Examples for openai_base_url:
@@ -239,6 +244,8 @@ class Config:
 
     model: str = "claude-opus-5"  # the Claude model
     effort: str = "low"
+    # Cheap model for retrieval's classify/rewrite calls.
+    utility_model: str = "claude-haiku-4-5"
 
     ollama_host: str = "http://127.0.0.1:11434"
     ollama_model: str = "llama3.1"
@@ -455,6 +462,7 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         brain_provider=brain.get("provider", "ollama"),
         model=brain.get("model", "claude-opus-5"),
         effort=brain.get("effort", "low"),
+        utility_model=brain.get("utility_model", "claude-haiku-4-5"),
         max_tokens=int(brain.get("max_tokens", 1024)),
         ollama_host=ollama_host,
         ollama_model=ollama_model,
