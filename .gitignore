@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+.venv/
+.venv-build/
+venv/
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+*.spec.bak
+
+# Local runtime state - never commit secrets or user data
+.env
+*.db
+*.db-journal
+models/*.zip
+models/vosk-model-*/
