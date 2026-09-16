@@ -284,10 +284,19 @@ def build_backend(cfg) -> BaseBackend:
     if choice == "hashing":
         return HashingBackend(getattr(cfg, "hashing_dimension", HASHING_DIM))
 
-    # auto: the best thing this machine can actually do, right now.
+    # auto: the best thing this machine can actually do, right now. A model
+    # that failed to load recently is skipped rather than re-probed, because
+    # each retry costs a network timeout and the CLI is a new process every
+    # time (see probe.py).
+    from ev_assistant import probe
+
     for candidate in (sentence_transformer(), openai()):
+        if probe.recently_failed(cfg, candidate.name):
+            logger.debug("Skipping %s - it failed to load recently", candidate.name)
+            continue
         if candidate.available():
             return candidate
+        probe.remember_failure(cfg, candidate.name)
     logger.warning(
         "No embedding model available - falling back to lexical hashing vectors. "
         "Install sentence-transformers and let `%s` download for real semantic search.",
