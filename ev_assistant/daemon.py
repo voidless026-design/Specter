@@ -21,8 +21,11 @@ from ev_assistant.bus import StateBus
 from ev_assistant.config import Config, load_config, validate_for_daemon, write_default_config
 from ev_assistant.data_feeds import DataFeedLoop
 from ev_assistant.knowledge import Knowledge
+from ev_assistant.library import Library
 from ev_assistant.memory import Memory
+from ev_assistant.migrate import migrate_if_needed
 from ev_assistant.server import DaemonStatus, create_app
+from ev_assistant.store import Store
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,12 @@ class Daemon:
         self.cfg = cfg
         self.memory = Memory(cfg.db_path)
         self.knowledge = Knowledge(cfg.knowledge_path)
-        self.brain = Brain(cfg, self.memory, self.knowledge)
+        self.store = Store(cfg.store_path)
+        # Bring an existing `ev learn` library across on first start, so the
+        # retrieval layer doesn't come up looking at an empty store.
+        migrate_if_needed(cfg, self.store)
+        self.library = Library(cfg, self.store)
+        self.brain = Brain(cfg, self.memory, self.knowledge, store=self.store)
         self.voice = Voice(cfg)
         self.feed_loop = DataFeedLoop(cfg, self.memory)
         self.status = DaemonStatus()
@@ -66,6 +74,10 @@ class Daemon:
         self.feed_loop.start()
         logger.info("Data feed loop started (every %s min)", self.cfg.feed_interval_minutes)
 
+        # Summaries and facts happen off the ingest path, and this also works
+        # through whatever was left pending by a previous run.
+        self.library.enricher.start()
+
         self._voice_thread = threading.Thread(target=self._voice_loop, name="ev-voice-loop", daemon=True)
         self._voice_thread.start()
 
@@ -79,6 +91,7 @@ class Daemon:
             status=self.status,
             bus=self.bus,
             request_shutdown=self.request_shutdown,
+            library=self.library,
         )
         server_config = uvicorn.Config(
             app, host=self.cfg.control_host, port=self.cfg.control_port, log_level="warning"
@@ -94,6 +107,7 @@ class Daemon:
 
         self._stop_event.set()
         self.feed_loop.stop()
+        self.library.enricher.stop()
         if self._voice_thread:
             self._voice_thread.join(timeout=2)
         logger.info("E.V. daemon stopped")
@@ -143,12 +157,13 @@ class Daemon:
 
             self._set_state("thinking")
             logger.info("Heard: %s", command_text)
-            reply = self.brain.respond(command_text, confirm=self._voice_confirm)
+            result = self.brain.respond_detailed(command_text, confirm=self._voice_confirm)
 
             self._set_state("speaking")
-            logger.info("Replying: %s", reply)
-            self.bus.set_transcript(command_text, reply)
-            self.voice.say(reply)
+            logger.info("Replying: %s", result.text)
+            # The GUI transcript keeps the source tags; the voice drops them.
+            self.bus.set_transcript(command_text, result.text)
+            self.voice.say(result.spoken)
 
         self._set_state("stopped")
 

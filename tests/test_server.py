@@ -4,6 +4,7 @@ import time
 
 from fastapi.testclient import TestClient
 
+from ev_assistant.brain import BrainReply
 from ev_assistant.bus import StateBus
 from ev_assistant.data_feeds import DataFeedLoop
 from ev_assistant.knowledge import Knowledge
@@ -11,12 +12,21 @@ from ev_assistant.server import DaemonStatus, create_app
 
 
 class FakeBrain:
-    def __init__(self):
+    def __init__(self, reply=None, sources=None):
         self.calls = []
+        self._reply = reply
+        self._sources = sources or []
 
     def respond(self, text: str, confirm=None) -> str:
+        return self.respond_detailed(text, confirm).text
+
+    def respond_detailed(self, text: str, confirm=None) -> BrainReply:
         self.calls.append((text, confirm))
-        return f"echo: {text}"
+        return BrainReply(
+            text=self._reply if self._reply is not None else f"echo: {text}",
+            provider="fake", sources=self._sources,
+            retrieval={"reason": "ok", "chunks": len(self._sources)},
+        )
 
 
 class FakeVoice:
@@ -99,10 +109,46 @@ def test_ask_returns_brain_reply_and_speaks_by_default(cfg, memory):
     resp = client.post("/ask", json={"text": "hello"}, headers=_auth(cfg))
 
     assert resp.status_code == 200
-    assert resp.json() == {"reply": "echo: hello"}
+    body = resp.json()
+    assert body["reply"] == "echo: hello"
+    assert body["provider"] == "fake"
     assert brain.calls[0][0] == "hello"
     _wait_until(lambda: voice.spoken)
     assert voice.spoken == ["echo: hello"]
+
+
+def test_ask_returns_citations_and_a_retrieval_trace(cfg, memory):
+    sources = [{"tag": "[S1]", "label": "Wikipedia - Tungsten",
+                "source_uri": "wikipedia:Tungsten", "score": 0.9, "chunk_id": 1},
+               {"tag": "[S2]", "label": "Your notes - Shed", "source_uri": "notes://shed",
+                "score": 0.4, "chunk_id": 2}]
+    brain = FakeBrain(reply="It melts at 3422 degrees [S1].", sources=sources)
+    client, _, _, _ = _make_client(cfg, memory, brain=brain)
+
+    body = client.post("/ask", json={"text": "melting point", "speak": False},
+                       headers=_auth(cfg)).json()
+
+    # Only the source actually cited comes back, not everything offered.
+    assert [c["tag"] for c in body["citations"]] == ["[S1]"]
+    assert body["retrieval_trace"]["reason"] == "ok"
+    assert body["retrieval_trace"]["chunks"] == 2
+
+
+def test_the_retrieval_trace_is_behind_the_same_auth(cfg, memory):
+    client, *_ = _make_client(cfg, memory)
+    assert client.post("/ask", json={"text": "hi"}).status_code == 401
+
+
+def test_the_voice_never_says_source_tags(cfg, memory):
+    brain = FakeBrain(reply="Boil it for a minute [S1]. Filter it first [S2].")
+    client, _, voice, _ = _make_client(cfg, memory, brain=brain)
+
+    body = client.post("/ask", json={"text": "water"}, headers=_auth(cfg)).json()
+
+    assert "[S1]" in body["reply"]          # text keeps them for citing
+    assert "[S" not in body["spoken"]       # speech drops them
+    _wait_until(lambda: voice.spoken)
+    assert "[S" not in voice.spoken[0]
 
 
 def test_ask_destructive_gate_defaults_to_deny(cfg, memory):
