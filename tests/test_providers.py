@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from ev_assistant.providers import (
+    BaseProvider,
     ClaudeProvider,
     OllamaProvider,
     OpenAICompatibleProvider,
@@ -130,3 +131,91 @@ def test_ollama_available_probes_tags(cfg, monkeypatch):
 
 def json_dumps(d):
     return json.dumps(d)
+
+
+# ---- utility completions (retrieval's classify / rewrite / HyDE calls) ----
+
+
+def test_utility_completion_is_tool_free_and_persona_free(cfg, monkeypatch):
+    sent = {}
+
+    def capture(url, **kwargs):
+        sent["url"] = url
+        sent["body"] = kwargs["json"]
+        return _Resp(_msg(content="SEARCH"))
+
+    monkeypatch.setattr("ev_assistant.providers.httpx.post", capture)
+    prov = OpenAICompatibleProvider("http://x/v1", "k", "m", "test")
+
+    assert prov.complete(cfg, "You classify questions.", "how do I purify water", 8) == "SEARCH"
+    assert "tools" not in sent["body"]
+    assert sent["body"]["max_tokens"] == 8
+    assert sent["body"]["messages"][0] == {
+        "role": "system", "content": "You classify questions.",
+    }
+    # E.V.'s persona must not leak in - a sarcastic classifier is a broken one.
+    assert "sarcas" not in json.dumps(sent["body"]).lower()
+
+
+def test_utility_completion_returns_none_on_empty_or_failure(cfg, monkeypatch):
+    prov = OpenAICompatibleProvider("http://x/v1", "k", "m", "test")
+
+    monkeypatch.setattr("ev_assistant.providers.httpx.post",
+                        lambda *a, **k: _Resp(_msg(content="   ")))
+    assert prov.complete(cfg, "s", "u") is None
+
+    import httpx
+
+    def boom(*a, **k):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr("ev_assistant.providers.httpx.post", boom)
+    assert prov.complete(cfg, "s", "u") is None
+
+
+def test_complete_walks_the_chain_to_the_first_brain_that_answers(cfg, monkeypatch):
+    from ev_assistant import providers
+
+    class Dead(BaseProvider):
+        name = "dead"
+
+        def available(self, cfg):
+            return True
+
+        def complete(self, cfg, system, user, max_tokens=256):
+            return None
+
+    class Alive(BaseProvider):
+        name = "alive"
+
+        def available(self, cfg):
+            return True
+
+        def complete(self, cfg, system, user, max_tokens=256):
+            return "SKIP"
+
+    class Unavailable(BaseProvider):
+        name = "unavailable"
+
+        def available(self, cfg):
+            return False
+
+        def complete(self, cfg, system, user, max_tokens=256):
+            raise AssertionError("must not be called when unavailable")
+
+    monkeypatch.setattr(providers, "build_chain",
+                        lambda c: [Unavailable(), Dead(), Alive()])
+    assert providers.complete(cfg, "s", "u") == "SKIP"
+
+    monkeypatch.setattr(providers, "build_chain", lambda c: [Dead()])
+    assert providers.complete(cfg, "s", "u") is None
+
+    monkeypatch.setattr(providers, "build_chain", lambda c: [])
+    assert providers.complete(cfg, "s", "u") is None
+
+
+def test_utility_model_defaults_to_a_small_one(cfg):
+    # Classification and rewriting run on every question; they shouldn't cost
+    # what the main model costs.
+    assert cfg.utility_model == "claude-haiku-4-5"
+    assert cfg.utility_model != cfg.model

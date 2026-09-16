@@ -50,6 +50,16 @@ class BaseProvider:
     ) -> str | None:
         raise NotImplementedError
 
+    def complete(self, cfg: Config, system: str, user: str, max_tokens: int = 256) -> str | None:
+        """One short, tool-free, persona-free call.
+
+        Retrieval uses this for classification and query rewriting, where
+        E.V.'s personality would actively get in the way - a sarcastic
+        classifier is a broken classifier. Returns None if it didn't work,
+        so the caller can fall back to rules.
+        """
+        raise NotImplementedError
+
 
 # ---------------------------------------------------------------------------
 # Claude
@@ -109,6 +119,34 @@ class ClaudeProvider(BaseProvider):
         except Exception:
             logger.exception("Claude error; falling back")
             return None
+
+
+    def complete(self, cfg, system, user, max_tokens=256) -> str | None:
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=cfg.anthropic_api_key)
+        try:
+            resp = client.messages.create(
+                # A small model is the right tool here. Note that `effort` is
+                # rejected on Haiku 4.5, so utility calls send no output_config
+                # at all - they don't need thinking depth anyway.
+                model=cfg.utility_model or cfg.model,
+                max_tokens=max_tokens,
+                system=system,
+                messages=[{"role": "user", "content": user}],
+            )
+            if resp.stop_reason == "refusal":
+                return None
+            return _plain_text(resp.content)
+        except Exception:
+            logger.warning("Claude utility call failed", exc_info=logger.isEnabledFor(logging.DEBUG))
+            return None
+
+
+def _plain_text(content) -> str | None:
+    """Text blocks joined, or None. Unlike _blocks_text, no 'Done.' filler."""
+    text = " ".join(b.text for b in content if getattr(b, "type", None) == "text").strip()
+    return text or None
 
 
 def _blocks_text(content) -> str:
@@ -197,6 +235,31 @@ class OpenAICompatibleProvider(BaseProvider):
             return None
 
 
+    def complete(self, cfg, system, user, max_tokens=256) -> str | None:
+        try:
+            resp = httpx.post(
+                f"{self.base_url}/chat/completions",
+                json={
+                    "model": self.model,
+                    "messages": [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                    "max_tokens": max_tokens,
+                    "stream": False,
+                },
+                headers={"Authorization": f"Bearer {self.api_key or 'none'}"},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            text = (resp.json()["choices"][0]["message"].get("content") or "").strip()
+            return text or None
+        except Exception:
+            logger.warning("%s utility call failed", self.name,
+                           exc_info=logger.isEnabledFor(logging.DEBUG))
+            return None
+
+
 class OllamaProvider(OpenAICompatibleProvider):
     def __init__(self, cfg: Config):
         super().__init__(
@@ -242,3 +305,19 @@ def build_chain(cfg: Config) -> list[BaseProvider]:
     if primary_name != "ollama":
         chain.append(ollama)  # local, no-key safety net
     return chain
+
+
+def complete(cfg: Config, system: str, user: str, max_tokens: int = 256) -> str | None:
+    """Run a short utility prompt on the first brain that answers.
+
+    Used by retrieval for classification and rewriting. Returns None when no
+    brain is reachable, which callers treat as "fall back to rules" rather
+    than as an error - retrieval has to work with no model at all.
+    """
+    for provider in build_chain(cfg):
+        if not provider.available(cfg):
+            continue
+        reply = provider.complete(cfg, system, user, max_tokens)
+        if reply:
+            return reply
+    return None
