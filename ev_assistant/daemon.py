@@ -1,12 +1,13 @@
-"""Orchestrates E.V.: the wake-word -> listen -> think -> speak loop, the
-background data-feed learning loop, and the local control API, all in one
-long-lived process. This is what `ev daemon` runs, and what the systemd
-unit / Windows autostart entry point at.
+"""Orchestrates E.V.: the wake -> listen -> think/act -> speak loop, the
+background data-feed loop, and the local control API + GUI, in one
+long-lived process. This is what `ev daemon` runs and what the systemd
+unit starts.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import threading
 
 import uvicorn
@@ -16,8 +17,10 @@ from ev_assistant.audio.stt import record_command
 from ev_assistant.audio.tts import Voice
 from ev_assistant.audio.wake_word import WakeWordListener
 from ev_assistant.brain import Brain
+from ev_assistant.bus import StateBus
 from ev_assistant.config import Config, load_config, validate_for_daemon, write_default_config
 from ev_assistant.data_feeds import DataFeedLoop
+from ev_assistant.knowledge import Knowledge
 from ev_assistant.memory import Memory
 from ev_assistant.server import DaemonStatus, create_app
 
@@ -26,18 +29,23 @@ logger = logging.getLogger(__name__)
 WAKE_ACK = "Go ahead."
 NO_SPEECH_HEARD = "Didn't catch that."
 
+_YES_RE = re.compile(r"\b(yes|yeah|yep|confirm|do it|go ahead|affirmative|proceed)\b", re.IGNORECASE)
+
 
 class Daemon:
     def __init__(self, cfg: Config):
         self.cfg = cfg
         self.memory = Memory(cfg.db_path)
-        self.brain = Brain(cfg, self.memory)
-        self.voice = Voice(rate=cfg.tts_rate, voice_id=cfg.tts_voice_id)
+        self.knowledge = Knowledge(cfg.knowledge_path)
+        self.brain = Brain(cfg, self.memory, self.knowledge)
+        self.voice = Voice(cfg)
         self.feed_loop = DataFeedLoop(cfg, self.memory)
         self.status = DaemonStatus()
+        self.bus = StateBus()
         self._stop_event = threading.Event()
         self._voice_thread: threading.Thread | None = None
         self._server: uvicorn.Server | None = None
+        self._vosk_model = None  # loaded once, shared by wake + command capture
 
     def request_shutdown(self) -> None:
         logger.info("Shutdown requested")
@@ -65,9 +73,11 @@ class Daemon:
             cfg=self.cfg,
             brain=self.brain,
             memory=self.memory,
+            knowledge=self.knowledge,
             feed_loop=self.feed_loop,
             voice=self.voice,
             status=self.status,
+            bus=self.bus,
             request_shutdown=self.request_shutdown,
         )
         server_config = uvicorn.Config(
@@ -76,13 +86,11 @@ class Daemon:
         self._server = uvicorn.Server(server_config)
 
         logger.info(
-            "E.V. control API listening on http://%s:%s (use `ev ask` over SSH)",
+            "E.V. control API + GUI on http://%s:%s  (open the GUI with `ev gui`)",
             self.cfg.control_host,
             self.cfg.control_port,
         )
-        # Blocks until self._server.should_exit is set - by an OS signal
-        # (uvicorn installs its own SIGINT/SIGTERM handlers) or by /stop.
-        self._server.run()
+        self._server.run()  # blocks until should_exit
 
         self._stop_event.set()
         self.feed_loop.stop()
@@ -100,47 +108,80 @@ class Daemon:
         try:
             listener = WakeWordListener(
                 model_dir=self.cfg.vosk_model_dir,
-                wake_phrases=self.cfg.wake_phrases,
+                names=self.cfg.wake_names,
+                prefixes=self.cfg.wake_prefixes,
                 device=self.cfg.input_device,
             )
         except Exception:
             logger.exception(
                 "Could not start the wake-word listener (no microphone / audio backend?). "
-                "The control API still works for `ev ask` over SSH."
+                "The control API and GUI still work for typed questions."
             )
-            self.status.state = "stopped"
+            self._set_state("stopped")
             return
 
-        model = listener.model  # reuse the loaded model for command transcription too
+        self._vosk_model = listener.model
         self.status.wake_word_ready = True
-        logger.info("Listening for the wake word (%s)...", ", ".join(self.cfg.wake_phrases))
+        logger.info("Listening for the wake word (names: %s)...", ", ".join(self.cfg.wake_names))
 
         while not self._stop_event.is_set():
-            self.status.state = "listening"
-            heard = listener.listen(self._stop_event)
-            if not heard:
-                break  # stop_event was set while waiting
+            self._set_state("listening")
+            match = listener.listen(self._stop_event, on_level=self.bus.set_level)
+            if match is None:
+                break  # stopped
 
-            self.status.state = "recording"
-            self.voice.say(WAKE_ACK)
-            command_text = record_command(
-                model,
-                silence_timeout_s=self.cfg.silence_timeout_s,
-                device=self.cfg.input_device,
-            )
+            if match.command:
+                # "E.V., open Firefox" - act on the inline command directly.
+                command_text = match.command
+            else:
+                # Bare "E.V." - acknowledge and record the follow-up.
+                command_text = self._record_after_ack()
+
             if not command_text:
                 self.voice.say(NO_SPEECH_HEARD)
                 continue
 
-            self.status.state = "thinking"
+            self._set_state("thinking")
             logger.info("Heard: %s", command_text)
-            reply = self.brain.respond(command_text)
+            reply = self.brain.respond(command_text, confirm=self._voice_confirm)
 
-            self.status.state = "speaking"
+            self._set_state("speaking")
             logger.info("Replying: %s", reply)
+            self.bus.set_transcript(command_text, reply)
             self.voice.say(reply)
 
-        self.status.state = "stopped"
+        self._set_state("stopped")
+
+    def _record_after_ack(self) -> str:
+        self._set_state("recording")
+        self.voice.say(WAKE_ACK)
+        return record_command(
+            self._vosk_model,
+            silence_timeout_s=self.cfg.silence_timeout_s,
+            device=self.cfg.input_device,
+            on_level=self.bus.set_level,
+        )
+
+    def _voice_confirm(self, description: str) -> bool:
+        """Ask out loud before a destructive action; listen for a yes."""
+        self._set_state("speaking")
+        self.voice.say(f"You asked me to {description}. Say yes to confirm, or no to cancel.")
+        self._set_state("recording")
+        answer = record_command(
+            self._vosk_model,
+            silence_timeout_s=1.0,
+            max_duration_s=6.0,
+            lead_grace_s=5.0,
+            device=self.cfg.input_device,
+            on_level=self.bus.set_level,
+        )
+        confirmed = bool(_YES_RE.search(answer))
+        logger.info("Confirmation for %r: heard %r -> %s", description, answer, confirmed)
+        return confirmed
+
+    def _set_state(self, state: str) -> None:
+        self.status.state = state
+        self.bus.set_state(state)
 
 
 def run_daemon() -> None:

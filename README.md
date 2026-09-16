@@ -1,203 +1,303 @@
 # E.V.
 
 A voice-activated personal assistant that runs on your own machine. Say
-"Hey E.V." and she listens, thinks (via Claude), and answers out loud -
-no screen, no app, just a voice, in the spirit of a dry-witted, blunt
-sci-fi assistant (think TARS' candor) rather than a hype-machine chatbot.
-She's software only: no camera, no physical form, no moving parts.
+"Hey E.V." (or "Yo E.V.", or just "E.V.") and she listens, answers out
+loud in an Australian voice, and can act on your computer - open and close
+apps, open websites, control volume and media, tweak GNOME, launch your
+Jegeo console, and run commands. She has a cyberpunk console GUI with a
+live audio visualizer, a growing memory, and an offline mode with a
+survivalist knowledge base for when you have no internet. Personality
+(dry, blunt, TARS-ish) is yours to tune.
 
-Read this whole page before installing - the "What 'getting smarter'
-actually means" and "SSH access, honestly" sections below set expectations
-that the rest of the setup depends on.
+She is software only: no camera, no body, no moving parts - just a voice.
 
-## What this actually is
+Read the [Security](#security) section before turning on full system
+control.
 
-- **Wake word:** an offline speech model (Vosk) listens continuously and
-  watches for "Hey E.V." (and a few phonetic variants). Nothing you say is
-  sent anywhere until the wake phrase is heard.
-- **Brain:** once triggered, your command is transcribed locally and sent
-  as text to Claude (Anthropic's API) to generate a reply, which is then
-  spoken back to you via offline text-to-speech.
-- **Memory:** conversations and background-fetched facts (news headlines,
-  weather) are stored in a local SQLite database and fed back to Claude as
-  context on later questions.
-- **Control API:** a small localhost-only web server lets you talk to E.V.
-  as text from any shell on the machine - including over SSH.
+## Contents
 
-### What "getting smarter over time" actually means
+- [What she can do](#what-she-can-do)
+- [Fedora setup](#fedora-setup)
+- [Talking to her](#talking-to-her)
+- [The GUI](#the-gui)
+- [System control & permissions](#system-control--permissions)
+- [Voice](#voice)
+- [Offline mode & the knowledge base](#offline-mode--the-knowledge-base)
+- [Jegeo](#jegeo)
+- [Moving E.V. to another PC](#moving-ev-to-another-pc)
+- [Configuration](#configuration)
+- [Security](#security)
+- [Troubleshooting](#troubleshooting)
+- [What was and wasn't verified](#what-was-and-wasnt-verified)
 
-This does **not** retrain or fine-tune any model on your machine - that
-would be a bad idea for a personal project (expensive, slow, and easy to
-get subtly wrong) and this repo doesn't pretend to do it. What actually
-happens: a background loop periodically pulls fresh data (RSS feeds you
-configure, optionally local weather) into E.V.'s memory, and everything
-you tell her gets remembered too. Claude then draws on whatever's
-relevant from that growing memory when it answers. That's a real and
-useful effect - she'll know about a headline from an hour ago, or
-something you told her yesterday - just not literal model retraining.
+## What she can do
 
-### SSH access, honestly
-
-`ev ask "..."` from an SSH session talks to the same running brain and
-memory as the voice loop, and she'll still speak the answer out loud *on
-the physical machine* (use `--quiet` to suppress that). What SSH does
-**not** give you is your remote terminal's microphone or speakers - audio
-hardware access only works for whoever's physically at that machine (or
-logged into its desktop session). The control API is bound to
-`127.0.0.1` only, on purpose - see [Security](#security) below.
-
-## Prerequisites
-
-- An Anthropic API key: <https://console.anthropic.com/settings/keys>
-- Python 3.11+ (Fedora: usually already installed; Windows: only needed
-  for the one-time build step, not to run the final `.exe`)
+- **Wake on her name** - "Hey E.V.", "Yo E.V.", "E.V., can you..." or a bare
+  "E.V." Say the command in the same breath ("E.V., open Firefox") and she
+  acts on it directly.
+- **Answer with Claude** when online, in an Australian voice.
+- **Act on your machine** - open/close apps, open websites, volume/media,
+  GNOME settings and extensions, launch Jegeo, run shell commands - gated by
+  a permission tier you choose, with spoken confirmation before anything
+  destructive.
+- **Remember** - conversations and background-pulled news/weather.
+- **Work offline** - rule-based voice commands still run, and questions are
+  answered from a local knowledge base you build with `ev learn` (Wikipedia,
+  web pages, files) - a survivalist/reference brain for no-signal situations.
+- **A cyberpunk GUI** - a reactive audio visualizer, a text box to type to
+  her, a live transcript, and panels to tune her personality, voice, and
+  permissions.
 
 ## Fedora setup
 
 ```bash
-git clone <this repo> && cd specter
+git clone https://github.com/voidless026-design/specter.git
+cd specter
+git checkout claude/ev-voice-activated-assistant-lrf1z7
 bash scripts/install-fedora.sh
 ```
 
-This installs `portaudio`, `espeak-ng`, and `alsa-utils` via `dnf`
-(you'll be prompted for `sudo`), creates a virtualenv under
-`~/.local/share/ev-assistant`, writes a default config, generates a
-control-API token, and registers a `systemd --user` service so E.V.
-starts automatically whenever you log in (she needs your desktop's audio
-session, so this is a **user** service, not a system-wide one - running
-her as root or via a system unit won't have access to your microphone).
+The installer adds the system packages she needs (`portaudio`, `espeak-ng`,
+`alsa-utils`, `ffmpeg-free`, `playerctl`, `xdg-utils`), creates a virtualenv
+under `~/.local/share/ev-assistant`, writes a default config, generates her
+control token, and registers a `systemd --user` service so she starts at
+login. It runs as **your user**, not root - she needs your desktop's audio
+session, and running as root would both break her audio and be dangerous
+(see [Security](#security)).
 
 Then:
 
-1. Edit `~/.config/ev-assistant/env` and set `ANTHROPIC_API_KEY`.
+1. Edit `~/.config/ev-assistant/env` and set `ANTHROPIC_API_KEY`
+   (from <https://console.anthropic.com/settings/keys>). She can also run
+   fully offline - set `offline.mode = "offline"` in the config and skip the key.
 2. `systemctl --user start ev-assistant`
-3. `journalctl --user -u ev-assistant -f` to watch it start (the first
-   run downloads a ~40MB offline speech model).
-4. Say "Hey E.V., I need help" and wait for her acknowledgement.
+3. `journalctl --user -u ev-assistant -f` to watch startup (first run
+   downloads a ~40MB offline speech model).
+4. Check your mic before relying on voice: `ev mic-test`.
+5. Say "Hey E.V." and wait for "Go ahead."
 
-To remove everything later: `bash scripts/uninstall-fedora.sh`.
-
-## Windows setup
-
-PyInstaller can't cross-compile, so the `.exe` has to be built **on your
-Windows machine** - there's no way around that from here. From PowerShell,
-with Python 3.11+ installed:
-
-```powershell
-git clone <this repo>; cd specter
-.\scripts\build-windows.ps1     # builds dist\ev\ev.exe
-.\scripts\install-windows.ps1   # installs it + registers a Task Scheduler autostart entry
-```
-
-Then edit the printed `ev.env` file to set `ANTHROPIC_API_KEY`, and either
-log off/on or run `Start-ScheduledTask -TaskName EV-Assistant`.
-
-**Honesty note:** the packaging scripts (`ev.spec`, `build-windows.ps1`,
-`install-windows.ps1`) were written in a Linux container with no Windows
-machine available to actually build and run on, based on well-documented
-PyInstaller behavior for this dependency set. See
-[Troubleshooting](#troubleshooting) below for the likely failure modes and
-how to fix them if the build doesn't come out clean on the first try.
-
-To remove everything later: `.\scripts\uninstall-windows.ps1`.
+Uninstall with `bash scripts/uninstall-fedora.sh`.
 
 ## Talking to her
 
 | From | How |
 |---|---|
-| Voice, at the machine | Say "Hey E.V." (or "...I need help"), wait for "Go ahead.", then speak your question. |
-| SSH, or any local shell | `ev ask "what's the weather like"` (add `-q`/`--quiet` to skip speaking the reply aloud) |
+| Voice | "Hey E.V.", "Yo E.V.", or "E.V." — then your request. Or all at once: "E.V., open Firefox." |
+| The GUI | `ev gui` (opens the cyberpunk console in your browser) |
+| Any shell / SSH | `ev ask "what's the weather"` (`-q` to not speak it aloud; `-y` to pre-approve a destructive action) |
 | Check she's alive | `ev status` |
-| Shut her down | `ev stop` (the systemd/Task Scheduler entry will restart her unless you also `systemctl --user stop ev-assistant` / stop the scheduled task) |
-| Pick the right mic | `ev devices`, then set `input_device` in the config |
-| Pick a TTS voice | `ev voices`, then set `voice_id` under `[voice]` in the config |
+| Stop her | `ev stop` |
 
-`ev ask`/`status`/`stop` all need `EV_CONTROL_TOKEN` set in your shell to
-the same value the daemon is running with (it's in the `env`/`ev.env`
-file the install script generated).
+`ev ask`/`status`/`stop`/`gui` read her token automatically from
+`~/.config/ev-assistant/env`, so they work from any shell, including a fresh
+SSH session, with nothing to export.
+
+**Wake names** are configurable (`[wake_word] names`). Several spellings of
+"E.V." ship by default because speech recognizers render it inconsistently.
+If she wakes too easily or not enough, add or trim spellings there.
+
+## The GUI
+
+`ev gui` opens a Cyberpunk-2077-styled console served by the daemon:
+
+- A central **audio visualizer** that pulses with what she hears and
+  animates while she thinks and speaks (driven live over a WebSocket).
+- A **text box** to type commands/questions (with a speak-aloud toggle).
+- A **live transcript** log.
+- A **SETTINGS** panel - personality (humor/honesty/verbosity/custom
+  instructions), voice engine and rate, and permission tier - saved back to
+  your config.
+- An **OFFLINE** panel - teach her from Wikipedia, a web page, or a typed
+  note, and see how many passages her offline brain holds.
+
+It's served on `127.0.0.1` only and needs her token (which `ev gui` puts in
+the URL for you).
+
+## System control & permissions
+
+When you ask her to do something, Claude picks a tool and E.V. runs it under
+your chosen **permission tier** (`[permissions] tier`):
+
+- **safe** — open apps, open websites, launch Jegeo. Nothing else.
+- **standard** (default) — the above + close apps, volume/media, GNOME
+  settings and extensions.
+- **full** — the above + arbitrary shell commands.
+
+Two guards apply on top:
+
+- **Spoken confirmation** before anything destructive (`rm`, `sudo`, `kill`,
+  disk operations, and similar). She asks out loud and waits for you to say
+  "yes." Toggle with `[permissions] confirm_destructive`.
+- **A blocklist** (`[permissions] forbidden_patterns`) that is refused
+  outright at every tier, no confirmation offered (e.g. `rm -rf /`, `mkfs`).
+
+Tiers are enforced twice - the tool list Claude is even offered is filtered
+by tier, and every action is re-checked before it runs.
+
+Examples: "E.V., open Firefox" · "close Spotify" · "set volume to 30" ·
+"next track" · "enable the Dash to Dock extension" · "set my GNOME theme to
+dark" · (full tier) "how much disk space is left."
+
+## Voice
+
+E.V. speaks with an Australian female voice online and falls back gracefully
+offline. Engine is `[voice] engine`:
+
+- **auto** (default) — `en-AU-NatashaNeural` (Microsoft Edge neural, free, no
+  key) when online; best offline voice otherwise.
+- **edge** — always the online Australian neural voice.
+- **piper** — a local neural voice (offline). Install one with
+  `ev voices --install-piper` (note: no Australian Piper model exists
+  upstream, so this is British/US neural).
+- **espeak** — `espeak-ng`, robotic but always works, fully offline, no setup.
+
+See every online voice with `ev voices --online` (add `--all` for all
+locales), then set `[voice] edge_voice`.
+
+## Offline mode & the knowledge base
+
+`[offline] mode`:
+
+- **auto** (default) — Claude when the network is up, local brain when it's
+  down. She also falls back to offline automatically if a request drops
+  mid-network.
+- **online** — always Claude (errors if offline).
+- **offline** — never uses the network.
+
+Offline, two things still work: **rule-based voice commands** (open/close
+apps, volume, media, launch Jegeo) and **question answering from a local
+knowledge base** you build up in advance:
+
+```bash
+ev learn --wikipedia "Water purification"
+ev learn --wikipedia "First aid"
+ev learn --url https://example.com/survival-guide
+ev learn --file ~/notes/wilderness.pdf     # .txt, .md, or .pdf
+```
+
+Everything you teach her is stored in a local full-text index and read back
+when offline - a survivalist/reference brain for no-signal situations. For
+real generated answers offline (not just passage lookup), install
+[Ollama](https://ollama.com), pull a small model, and set
+`[offline] ollama_model` (e.g. `llama3.2`).
+
+## Jegeo
+
+E.V. can launch your Jegeo security-operator console
+([dig_atk](https://github.com/voidless026-design/dig_atk)) on command -
+"E.V., launch Jegeo", or "open the network scanner in Jegeo." Install Jegeo
+first (its own repo has a Fedora installer); E.V. runs `jegeo` (or
+`python -m jegeo`). Deeper step-by-step automation of Jegeo's modules
+depends on Jegeo exposing a command-line/scriptable interface; today E.V.
+launches it (optionally naming a module to open). Tell me if you want E.V.
+to drive specific Jegeo workflows and I'll wire those to whatever interface
+Jegeo exposes.
+
+## Moving E.V. to another PC
+
+To use a beefier PC's brainpower, you have two options:
+
+**Move her whole brain (config + memory + knowledge):**
+
+```bash
+# On this PC:
+ev export ev-brain.tar.gz
+# copy the file across, then on the other PC (with E.V. installed):
+ev import ev-brain.tar.gz
+```
+
+**Point a laptop at another PC's running daemon** (text/GUI - the laptop
+sends questions to the desktop's brain): set `[control_api] remote_host` and
+`remote_port` in the laptop's config to the desktop, and use SSH port
+forwarding since the API is localhost-only:
+
+```bash
+ssh -L 8765:127.0.0.1:8765 you@desktop     # forward the desktop's daemon
+ev ask "..."                               # laptop now uses the desktop's brain
+```
+
+**Build a standalone binary bundle** (no Python needed on the target Fedora
+PC): `bash scripts/build-bundle-fedora.sh` produces `dist/ev/` - copy the
+folder over, `dnf install portaudio espeak-ng` there, and run `./ev/ev`.
 
 ## Configuration
 
-Edit the config file directly - `ev init` (run automatically by both
-install scripts) writes a commented default at:
-
-- Fedora: `~/.config/ev-assistant/config.toml`
-- Windows: `%LOCALAPPDATA%\ev-assistant\config.toml`
-
-Restart the service/task after editing it. Notable settings:
-
-- `[brain] model` - defaults to `claude-opus-5`. Switch to
-  `claude-sonnet-5` if the voice round-trip feels slow; it's cheaper and
-  faster, at somewhat less depth.
-- `[brain] effort` - `low` by default, tuned for a snappy live
-  conversation. Raise it (`medium`/`high`) if you want more careful
-  answers and don't mind a longer pause before she replies.
-- `[personality] humor` / `honesty` (0-100) - shapes E.V.'s tone; see
-  `ev_assistant/personality.py` for exactly how. High honesty means she'll
-  tell you plainly when she doesn't know something instead of guessing.
-- `[wake_word] phrases` - the list of phrases that trigger her (a few
-  phonetic spellings of "Hey E.V." are included by default, since speech
-  recognizers vary in how they spell it out).
-- `[data_feeds] feeds` / `weather_location` - what she pulls into memory
-  in the background, and how often (`interval_minutes`).
+Config lives at `~/.config/ev-assistant/config.toml` (secrets in the
+sibling `env` file). Edit and `systemctl --user restart ev-assistant`, or
+use the GUI SETTINGS panel. Key sections: `[brain]` (model, effort),
+`[personality]` (humor, honesty, verbosity, custom_instructions),
+`[wake_word]` (names, prefixes), `[voice]`, `[permissions]`, `[offline]`,
+`[control_api]` (incl. remote brain), `[data_feeds]`. Every field is
+commented in the file.
 
 ## Security
 
-- The control API only binds to `127.0.0.1` and requires the
-  `EV_CONTROL_TOKEN` bearer token on every request - reaching it requires
-  a shell on the machine itself (SSH counts) or a port-forward you set up
-  yourself. It is never exposed to your network by default, and that's
-  deliberate: turning that around would let anyone on your LAN issue
-  commands to (and hear responses from) your assistant.
-- Feed content (RSS headlines, etc.) is passed to Claude as labeled data
-  ("Things E.V. currently knows"), never as instructions, and this version
-  of E.V. has no tool-use or action-taking capability - so even a
-  malicious feed attempting a prompt-injection-style headline has nothing
-  to actually do beyond producing a weird spoken sentence. Still, only
-  point `feeds` at sources you trust.
-- Your `.env` / `env` / `ev.env` file holds your Anthropic API key in
-  plaintext - it's `.gitignore`d here and the install scripts `chmod 600`
-  it on Fedora, but treat it like any other credential.
+- **Permission tiers gate what she can do.** `full` lets anything that
+  reaches your microphone - a video, someone in the room, even a malicious
+  news headline she ingested - potentially run commands as you. Destructive
+  actions still need spoken confirmation, but treat `full` with the same
+  respect as an open root shell. `standard` is the default for good reason.
+- **Don't run her as root.** She's a `systemd --user` service on purpose:
+  audio lives in your user session, and root + always-on mic is a bad combo.
+  When a task genuinely needs elevation she'll use `sudo` for that command
+  (and destructive `sudo` triggers confirmation).
+- **The control API is localhost-only** and bearer-token protected. Reaching
+  it needs a shell on the machine (SSH counts) or a tunnel you set up. It's
+  never exposed to your network by default.
+- **Feed and knowledge content is data, not instructions** - E.V. is told to
+  treat it as reference material. Still, only point `feeds` and `ev learn` at
+  sources you trust.
+- **Your `env` file holds your API key and token in plaintext** - it's
+  `chmod 600` and `.gitignore`d. `ev export` bundles it, so keep exported
+  archives private.
 
 ## Troubleshooting
 
-**"PortAudio library not found"** (Fedora) - `sudo dnf install portaudio`.
+**"EV_CONTROL_TOKEN is not set"** - run `ev init` (the installer does this).
+The token lives in `~/.config/ev-assistant/env` and is read automatically.
 
-**No sound / `RuntimeError: ... eSpeak ... not installed`** (Fedora) -
-`sudo dnf install espeak-ng alsa-utils` (both are installed by
-`install-fedora.sh`, but if you're running outside that script, install
-them yourself).
+**She doesn't hear me / nothing happens when I speak** - run `ev mic-test`.
+It shows a live input-level bar and transcribes what you say. If the bar
+stays near zero, the wrong microphone is selected: `ev devices`, then set
+`[audio] input_device` to the right index/name and restart. If the bar moves
+but the wake word isn't detected, say one of the configured names clearly, or
+add a spelling to `[wake_word] names`.
 
-**Wake word never triggers, or triggers constantly** - run `ev devices`
-and set `input_device` in the config to your actual microphone; the
-system default device is sometimes the wrong one (e.g. a webcam mic vs. a
-headset). You can also loosen/tighten detection by adjusting the phrase
-list in `[wake_word] phrases`, and endpointing (when she decides you've
-stopped talking) via `silence_timeout_s`.
+**She hears me but doesn't speak back** - test the OS voice directly:
+`espeak-ng "test"`. Silent? Install `sudo dnf install alsa-utils espeak-ng`.
+For the Australian neural voice you also need an mp3 player and internet:
+`sudo dnf install ffmpeg-free` (or mpv). If `espeak-ng` speaks but E.V.
+doesn't, it's usually the `systemd --user` service starting before your audio
+session - `systemctl --user restart ev-assistant` after you're logged in.
 
-**"Invalid sample rate" from sounddevice** - your microphone doesn't
-support 16kHz capture directly; try a different `input_device`, or a USB
-headset, which almost always supports it.
+**"No audio player found"** - `sudo dnf install ffmpeg-free` (provides
+`ffplay`, used to play the neural voice).
 
-**`ev.exe` fails at startup with `ModuleNotFoundError`** (Windows) - a
-PyInstaller hidden import is missing for your exact dependency versions.
-Open `scripts/ev.spec`, and add the missing module name to
-`hiddenimports`, then rebuild. `uvicorn`, `pyttsx3`'s driver loading, and
-`vosk`/`sounddevice`'s native libraries are the most likely spots (the
-spec already covers the known cases - see the comment at the top of that
-file).
+**Claude errors (bad key, rate limit, offline)** - she says so out loud
+rather than going silent; `journalctl --user -u ev-assistant -f` has details.
+If offline, she automatically uses her local brain.
 
-**A console window briefly flashes when E.V. auto-starts on Windows** -
-this is the console-subsystem `ev.exe` process; the scheduled task
-launches it through a hidden PowerShell wrapper specifically to suppress
-this, but Windows' behavior here varies by version. If it bothers you,
-you can rebuild with `console=False` in `ev.spec` - but then `ev.exe ask`
-run manually from a terminal won't print output either, so you'd lose
-normal CLI usability for the sake of a cosmetic flash.
+## What was and wasn't verified
 
-**Claude API errors** (`ANTHROPIC_API_KEY` missing/invalid, rate limits,
-network) - E.V. will say so out loud rather than going silent; check
-`journalctl --user -u ev-assistant -f` (Fedora) for the full error.
+Built and tested in a Linux container with no microphone, speaker, GNOME
+desktop, or Windows machine, and with restricted network egress. So:
+
+- **Verified here:** every module imports cleanly; the full unit-test suite
+  passes (85 tests - config/env-file secrets, memory, knowledge base and
+  search, wake-word matching, the permission-tier and confirmation gates on
+  the executor, the offline command parser, the settings editor, the Claude
+  tool-use loop with a mocked API, and the control API incl. auth,
+  `/ask`, `/learn`, settings, and the WebSocket); the CLI's non-network
+  commands end-to-end; the server serving the GUI and streaming state; and
+  TTS actually speaking via `espeak-ng`.
+- **Needs your real machine to confirm** (standard patterns, not verified
+  end-to-end here): the live microphone wake/record loop, the Australian
+  edge-tts voice (blocked network here), Piper install, the GNOME/app/media
+  system actions (no desktop here), launching Jegeo, the first-run speech
+  model download, and the Fedora/Windows install and bundle scripts.
+
+Run `ev mic-test` first on your machine - it's the fastest way to confirm the
+audio path end-to-end.
 
 ## Development
 
@@ -206,39 +306,26 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/pytest
 ```
 
-The test suite covers config loading, memory/retrieval, the personality
-prompt builder, the Claude error-handling paths (mocked, no real API
-calls), the control API's auth and routes, and RSS/weather ingestion - all
-without needing a microphone, speakers, or a real API key. Also verified
-directly in the sandbox this was built in: every module imports cleanly,
-the CLI's non-network commands behave correctly end-to-end, and TTS
-actually speaks (via `espeak-ng`) once the right system packages are
-installed. Two things that sandbox couldn't reach to verify, both for
-infrastructure reasons rather than known bugs: the first-run speech-model
-download in `audio/model_setup.py` (that sandbox's network policy blocks
-the download host entirely; the download/extract code follows standard,
-unremarkable `httpx` + `zipfile` patterns) and the wake-word/STT audio
-loop itself (no microphone in a container). The two install scripts need
-a real Fedora/Windows machine to exercise end-to-end, which is why this
-project was built and tested to that boundary rather than claimed beyond
-it.
-
 ## Project layout
 
 ```
 ev_assistant/
-  cli.py           entry point (`ev ...`)
-  daemon.py        wires everything together: wake→listen→think→speak + feeds + control API
-  server.py        localhost control API (FastAPI)
-  brain.py         Claude client
+  cli.py           the `ev` command (init, daemon, ask, gui, mic-test, learn, export/import, ...)
+  daemon.py        wake -> listen -> think/act -> speak loop + feeds + API/GUI
+  server.py        localhost control API + GUI host + WebSocket state stream
+  brain.py         online (Claude tool-use loop) vs offline routing
+  offline.py       offline rule-based commands + local knowledge answering
   personality.py   TARS-inspired, adjustable system prompt
   memory.py        SQLite conversation + fact store
-  data_feeds.py    background RSS/weather ingestion
-  config.py        TOML config + env secrets
-  audio/
-    wake_word.py   continuous "Hey E.V." spotting (Vosk)
-    stt.py         records + transcribes your command
-    tts.py         speaks the reply (pyttsx3)
-scripts/           Fedora (systemd) and Windows (PyInstaller + Task Scheduler) packaging
-tests/             unit tests (no audio/network/API-key required)
+  knowledge.py     SQLite FTS5 offline knowledge base
+  ingest.py        `ev learn` fetchers (Wikipedia / URL / file)
+  data_feeds.py    background news/weather ingestion
+  config.py        TOML config + env-file secrets
+  settings.py      in-place config editing for the GUI
+  net.py / bus.py  connectivity check / live-state bus for the visualizer
+  tools/           system-control executor + Claude tool schemas
+  audio/           wake word (Vosk), STT, TTS (edge/piper/espeak)
+  gui/index.html   the cyberpunk console
+scripts/           Fedora + Windows install/bundle packaging
+tests/             85 unit tests (no audio/network/API key needed)
 ```

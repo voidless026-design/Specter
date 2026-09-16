@@ -4,7 +4,9 @@ import time
 
 from fastapi.testclient import TestClient
 
+from ev_assistant.bus import StateBus
 from ev_assistant.data_feeds import DataFeedLoop
+from ev_assistant.knowledge import Knowledge
 from ev_assistant.server import DaemonStatus, create_app
 
 
@@ -12,8 +14,8 @@ class FakeBrain:
     def __init__(self):
         self.calls = []
 
-    def respond(self, text: str) -> str:
-        self.calls.append(text)
+    def respond(self, text: str, confirm=None) -> str:
+        self.calls.append((text, confirm))
         return f"echo: {text}"
 
 
@@ -30,6 +32,7 @@ def _make_client(cfg, memory, brain=None, voice=None, shutdown_calls=None):
     voice = voice if voice is not None else FakeVoice()
     shutdown_calls = shutdown_calls if shutdown_calls is not None else []
     feed_loop = DataFeedLoop(cfg, memory)
+    knowledge = Knowledge(cfg.knowledge_path)
     status = DaemonStatus()
     status.state = "listening"
     status.wake_word_ready = True
@@ -38,9 +41,11 @@ def _make_client(cfg, memory, brain=None, voice=None, shutdown_calls=None):
         cfg=cfg,
         brain=brain,
         memory=memory,
+        knowledge=knowledge,
         feed_loop=feed_loop,
         voice=voice,
         status=status,
+        bus=StateBus(),
         request_shutdown=lambda: shutdown_calls.append(True),
     )
     return TestClient(app), brain, voice, shutdown_calls
@@ -94,9 +99,24 @@ def test_ask_returns_brain_reply_and_speaks_by_default(cfg, memory):
 
     assert resp.status_code == 200
     assert resp.json() == {"reply": "echo: hello"}
-    assert brain.calls == ["hello"]
+    assert brain.calls[0][0] == "hello"
     _wait_until(lambda: voice.spoken)
     assert voice.spoken == ["echo: hello"]
+
+
+def test_ask_destructive_gate_defaults_to_deny(cfg, memory):
+    client, brain, _, _ = _make_client(cfg, memory)
+    client.post("/ask", json={"text": "delete stuff"}, headers=_auth(cfg))
+    # Without allow_destructive, the confirm callback must deny.
+    _, confirm = brain.calls[0]
+    assert confirm("run: rm -rf x") is False
+
+
+def test_ask_allow_destructive_permits(cfg, memory):
+    client, brain, _, _ = _make_client(cfg, memory)
+    client.post("/ask", json={"text": "delete stuff", "allow_destructive": True}, headers=_auth(cfg))
+    _, confirm = brain.calls[0]
+    assert confirm("run: rm -rf x") is True
 
 
 def test_ask_does_not_speak_when_speak_is_false(cfg, memory):

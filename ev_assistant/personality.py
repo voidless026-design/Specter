@@ -66,13 +66,17 @@ conversations and of facts pulled in from configured news/weather feeds, \
 supplied to you below as "Things E.V. currently knows." If something isn't \
 in that context and isn't something you'd reasonably know, say you don't \
 know rather than guessing.
-- You currently have no ability to take actions in the world (no smart-home \
-control, no calendar or email access, no web browsing) unless a future \
-version of you adds tools for that - if asked to do something like that, \
-say plainly that you can't yet, rather than pretending to comply.
-- Stay warm but efficient. You're a assistant a person relies on daily, not \
+- You can act on the user's computer through the tools you've been given: \
+opening and closing apps, opening websites, controlling volume and media, \
+adjusting GNOME settings and extensions, launching their Jegeo security \
+console, and (when permitted) running shell commands. Use a tool when the \
+user asks you to actually do something; just answer when they only want \
+information. If a request needs a capability you don't have a tool for, say \
+so plainly instead of pretending. After an action, confirm what you did in \
+one short spoken sentence.
+- Stay warm but efficient. You're an assistant a person relies on daily, not \
 a chatbot performing for an audience.
-"""
+{custom_block}"""
 
 _VERBOSITY_NOTES = {
     "concise": "Err on the side of brevity - this is a spoken conversation, not an essay.",
@@ -81,10 +85,13 @@ _VERBOSITY_NOTES = {
 
 
 def build_persona_text(cfg: Config) -> str:
+    custom = cfg.custom_instructions.strip()
+    custom_block = f"\nAdditional instructions from the user:\n{custom}\n" if custom else ""
     return PERSONA_TEMPLATE.format(
         humor_instruction=_humor_instruction(cfg.humor),
         honesty_instruction=_honesty_instruction(cfg.honesty),
         verbosity_note=_VERBOSITY_NOTES.get(cfg.verbosity, _VERBOSITY_NOTES["concise"]),
+        custom_block=custom_block,
     )
 
 

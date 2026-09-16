@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>E.V.</title>
+<style>
+  :root {
+    --bg: #05070a;
+    --panel: #0b1016;
+    --edge: #16323c;
+    --yellow: #f7ff28;
+    --cyan: #16e0e0;
+    --magenta: #ff2e88;
+    --dim: #3a4654;
+    --text: #d7e3ec;
+    --grid: rgba(22, 224, 224, 0.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: "JetBrains Mono", "DejaVu Sans Mono", "Courier New", monospace;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 34px 34px;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px; border-bottom: 1px solid rgba(247,255,40,0.25);
+    background: linear-gradient(180deg, rgba(247,255,40,0.05), transparent);
+  }
+  .brand { font-weight: 700; letter-spacing: 4px; color: var(--yellow);
+           text-shadow: 0 0 8px rgba(247,255,40,0.6); font-size: 20px; }
+  .brand small { color: var(--cyan); letter-spacing: 2px; font-size: 11px; display:block; }
+  .statusline { font-size: 11px; color: var(--dim); text-align: right; }
+  .statusline b { color: var(--cyan); }
+  .state-badge { color: var(--yellow); text-transform: uppercase; }
+
+  main { flex: 1; display: grid; grid-template-columns: 1fr 340px; min-height: 0; }
+  @media (max-width: 780px) { main { grid-template-columns: 1fr; } .side { display:none; } }
+
+  .stage { position: relative; display: flex; flex-direction: column; min-height: 0; }
+  #viz { flex: 1; width: 100%; display: block; }
+  .caption {
+    position: absolute; bottom: 92px; left: 0; right: 0; text-align: center;
+    font-size: 13px; color: var(--cyan); pointer-events: none; padding: 0 20px;
+    text-shadow: 0 0 6px rgba(22,224,224,0.5);
+  }
+  .inputbar {
+    display: flex; gap: 8px; padding: 14px; border-top: 1px solid rgba(22,224,224,0.2);
+    background: var(--panel);
+  }
+  .inputbar input[type=text] {
+    flex: 1; background: #05090d; border: 1px solid var(--dim); color: var(--text);
+    padding: 12px 14px; font-family: inherit; font-size: 14px; outline: none;
+  }
+  .inputbar input[type=text]:focus { border-color: var(--cyan); box-shadow: 0 0 10px rgba(22,224,224,0.3); }
+  button {
+    background: transparent; border: 1px solid var(--yellow); color: var(--yellow);
+    font-family: inherit; padding: 10px 16px; cursor: pointer; text-transform: uppercase;
+    letter-spacing: 2px; font-size: 12px; transition: all .12s;
+  }
+  button:hover { background: var(--yellow); color: #000; box-shadow: 0 0 14px rgba(247,255,40,0.5); }
+  button.ghost { border-color: var(--dim); color: var(--dim); }
+  button.ghost:hover { background: var(--dim); color: #000; box-shadow: none; }
+
+  .side { border-left: 1px solid rgba(247,255,40,0.2); background: var(--panel);
+          display: flex; flex-direction: column; min-height: 0; }
+  .tabs { display: flex; border-bottom: 1px solid var(--dim); }
+  .tabs button { flex: 1; border: none; border-bottom: 2px solid transparent; color: var(--dim); }
+  .tabs button.active { color: var(--yellow); border-bottom-color: var(--yellow); background: transparent; box-shadow:none; }
+  .tabs button:hover { background: transparent; color: var(--cyan); box-shadow:none; }
+  .tabpanes { flex: 1; overflow-y: auto; padding: 16px; }
+  .pane { display: none; }
+  .pane.active { display: block; }
+
+  .log { font-size: 12px; line-height: 1.5; }
+  .log .turn { margin-bottom: 12px; border-left: 2px solid var(--dim); padding-left: 10px; }
+  .log .you { color: var(--cyan); }
+  .log .ev { color: var(--text); }
+
+  label { display: block; font-size: 11px; color: var(--dim); margin: 14px 0 4px;
+          text-transform: uppercase; letter-spacing: 1px; }
+  input[type=range] { width: 100%; accent-color: var(--yellow); }
+  select, textarea, .field {
+    width: 100%; background: #05090d; border: 1px solid var(--dim); color: var(--text);
+    padding: 8px; font-family: inherit; font-size: 13px;
+  }
+  textarea { min-height: 60px; resize: vertical; }
+  .val { color: var(--yellow); float: right; }
+  .hint { font-size: 10px; color: var(--dim); margin-top: 4px; }
+  .banner { padding: 10px 14px; background: rgba(255,46,136,0.12); border: 1px solid var(--magenta);
+            color: var(--magenta); font-size: 12px; margin: 12px; display: none; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">E.V.<small>OPERATOR CONSOLE</small></div>
+    <div class="statusline">
+      <div>STATE <span class="state-badge" id="state">--</span></div>
+      <div id="meta">brain <b id="brain">?</b> · tier <b id="tier">?</b> · <b id="net">?</b></div>
+    </div>
+  </header>
+
+  <div class="banner" id="tokenBanner">
+    No access token. Launch the GUI with <code>ev gui</code>, or append <code>?token=YOUR_TOKEN</code> to the URL.
+  </div>
+
+  <main>
+    <section class="stage">
+      <canvas id="viz"></canvas>
+      <div class="caption" id="caption"></div>
+      <div class="inputbar">
+        <input type="text" id="ask" placeholder="Type a command or question for E.V..." autocomplete="off" />
+        <button id="speakToggle" class="ghost" title="Speak replies aloud">SPEAK: ON</button>
+        <button id="send">SEND</button>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="tabs">
+        <button data-tab="log" class="active">LOG</button>
+        <button data-tab="settings">SETTINGS</button>
+        <button data-tab="offline">OFFLINE</button>
+      </div>
+      <div class="tabpanes">
+        <div class="pane active" id="pane-log"><div class="log" id="log"></div></div>
+
+        <div class="pane" id="pane-settings">
+          <label>Humor <span class="val" id="humorVal">65</span></label>
+          <input type="range" id="humor" min="0" max="100" value="65" />
+          <label>Honesty <span class="val" id="honestyVal">90</span></label>
+          <input type="range" id="honesty" min="0" max="100" value="90" />
+          <label>Verbosity</label>
+          <select id="verbosity" class="field">
+            <option value="concise">concise</option>
+            <option value="normal">normal</option>
+          </select>
+          <label>Voice engine</label>
+          <select id="engine" class="field">
+            <option value="auto">auto (Australian online, offline fallback)</option>
+            <option value="edge">edge (Australian neural, online)</option>
+            <option value="piper">piper (neural, offline)</option>
+            <option value="espeak">espeak (robotic, always works)</option>
+          </select>
+          <label>Speech rate <span class="val" id="rateVal">175</span></label>
+          <input type="range" id="rate" min="100" max="260" value="175" />
+          <label>Permission tier</label>
+          <select id="tier" class="field">
+            <option value="safe">safe (open apps/sites only)</option>
+            <option value="standard">standard (+ close apps, volume, GNOME)</option>
+            <option value="full">full (+ shell commands)</option>
+          </select>
+          <label>Custom instructions</label>
+          <textarea id="custom" placeholder="e.g. call me boss; be blunter when I'm wrong"></textarea>
+          <div style="margin-top:14px"><button id="saveSettings">SAVE</button></div>
+          <div class="hint">Saved to config.toml. Restart the daemon to apply.</div>
+        </div>
+
+        <div class="pane" id="pane-offline">
+          <div class="hint">Passages in offline knowledge base: <b id="kcount">0</b></div>
+          <label>Teach from Wikipedia</label>
+          <input type="text" id="wikiTitle" class="field" placeholder="e.g. Water purification" />
+          <div style="margin-top:8px"><button id="learnWiki">LEARN ARTICLE</button></div>
+          <label>Teach from a web page</label>
+          <input type="text" id="learnUrl" class="field" placeholder="https://..." />
+          <div style="margin-top:8px"><button id="learnUrlBtn">LEARN PAGE</button></div>
+          <label>Teach a note directly</label>
+          <textarea id="learnText" placeholder="Anything you want E.V. to remember offline."></textarea>
+          <div style="margin-top:8px"><button id="learnTextBtn">SAVE NOTE</button></div>
+          <div class="hint" id="learnStatus"></div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+<script>
+(function () {
+  "use strict";
+  const params = new URLSearchParams(location.search);
+  const TOKEN = params.get("token") || "";
+  const authHeaders = TOKEN ? { "Authorization": "Bearer " + TOKEN, "Content-Type": "application/json" } : { "Content-Type": "application/json" };
+  if (!TOKEN) document.getElementById("tokenBanner").style.display = "block";
+
+  let speakOn = true;
+  let viz = { state: "idle", level: 0, target: 0 };
+
+  // ---- API helpers ----
+  async function api(path, opts) {
+    opts = opts || {};
+    opts.headers = authHeaders;
+    const r = await fetch(path, opts);
+    if (!r.ok) throw new Error((await r.text()) || r.status);
+    return r.json();
+  }
+
+  // ---- WebSocket live state ----
+  function connectWs() {
+    if (!TOKEN) return;
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(TOKEN)}`);
+    ws.onmessage = (ev) => {
+      const s = JSON.parse(ev.data);
+      viz.state = s.state;
+      viz.target = s.level || 0;
+      document.getElementById("state").textContent = (s.state || "--").toUpperCase();
+      const cap = document.getElementById("caption");
+      if (s.state === "listening") cap.textContent = "listening...";
+      else if (s.state === "recording") cap.textContent = "listening...";
+      else if (s.state === "thinking") cap.textContent = "thinking...";
+      else if (s.state === "speaking") cap.textContent = s.last_reply || "speaking...";
+      else cap.textContent = "";
+    };
+    ws.onclose = () => setTimeout(connectWs, 1500);
+    ws.onerror = () => ws.close();
+  }
+
+  // ---- Visualizer ----
+  const canvas = document.getElementById("viz");
+  const ctx = canvas.getContext("2d");
+  function resize() {
+    const r = canvas.parentElement.getBoundingClientRect();
+    canvas.width = r.width * devicePixelRatio;
+    canvas.height = (r.height - 60) * devicePixelRatio;
+  }
+  window.addEventListener("resize", resize);
+
+  const COLORS = {
+    idle: "#3a4654", listening: "#16e0e0", recording: "#16e0e0",
+    thinking: "#f7ff28", speaking: "#ff2e88", starting: "#3a4654", stopped: "#3a4654",
+  };
+  let t = 0;
+  function draw() {
+    t += 0.016;
+    viz.level += (viz.target - viz.level) * 0.15;
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const cx = w / 2, cy = h / 2;
+    const color = COLORS[viz.state] || "#3a4654";
+    const base = Math.min(w, h) * 0.16;
+    const pulse = base * (1 + viz.level * 0.9 + Math.sin(t * 2) * 0.03);
+
+    // concentric rings
+    for (let i = 4; i >= 1; i--) {
+      ctx.beginPath();
+      ctx.arc(cx, cy, pulse + i * base * 0.28, 0, Math.PI * 2);
+      ctx.strokeStyle = color;
+      ctx.globalAlpha = 0.06 * i;
+      ctx.lineWidth = 2 * devicePixelRatio;
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+
+    // reactive waveform ring
+    const points = 96;
+    ctx.beginPath();
+    for (let i = 0; i <= points; i++) {
+      const a = (i / points) * Math.PI * 2;
+      const noise = Math.sin(a * 6 + t * 3) * 0.5 + Math.sin(a * 11 - t * 2) * 0.5;
+      const r = pulse + noise * base * 0.18 * (0.3 + viz.level);
+      const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.5 * devicePixelRatio;
+    ctx.shadowBlur = 24; ctx.shadowColor = color;
+    ctx.stroke();
+
+    // core
+    ctx.beginPath();
+    ctx.arc(cx, cy, base * 0.5 * (1 + viz.level * 0.5), 0, Math.PI * 2);
+    ctx.fillStyle = color; ctx.globalAlpha = 0.85; ctx.fill();
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+
+    requestAnimationFrame(draw);
+  }
+
+  // ---- Conversation ----
+  function addTurn(you, ev) {
+    const log = document.getElementById("log");
+    const div = document.createElement("div");
+    div.className = "turn";
+    div.innerHTML = `<div class="you">&gt; ${escapeHtml(you)}</div><div class="ev">E.V. ${escapeHtml(ev)}</div>`;
+    log.insertBefore(div, log.firstChild);
+  }
+  function escapeHtml(s) { const d = document.createElement("div"); d.textContent = s || ""; return d.innerHTML; }
+
+  async function send() {
+    const input = document.getElementById("ask");
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    addTurn(text, "…");
+    try {
+      const r = await api("/ask", { method: "POST", body: JSON.stringify({ text, speak: speakOn }) });
+      document.querySelector("#log .turn .ev").textContent = "E.V. " + r.reply;
+    } catch (e) {
+      document.querySelector("#log .turn .ev").textContent = "E.V. [error] " + e.message;
+    }
+  }
+
+  // ---- wire up UI ----
+  document.getElementById("send").onclick = send;
+  document.getElementById("ask").addEventListener("keydown", (e) => { if (e.key === "Enter") send(); });
+  document.getElementById("speakToggle").onclick = function () {
+    speakOn = !speakOn; this.textContent = "SPEAK: " + (speakOn ? "ON" : "OFF");
+    this.classList.toggle("ghost", !speakOn);
+  };
+  document.querySelectorAll(".tabs button").forEach((b) => {
+    b.onclick = () => {
+      document.querySelectorAll(".tabs button").forEach((x) => x.classList.remove("active"));
+      document.querySelectorAll(".pane").forEach((x) => x.classList.remove("active"));
+      b.classList.add("active");
+      document.getElementById("pane-" + b.dataset.tab).classList.add("active");
+    };
+  });
+
+  const bind = (id, valId) => {
+    const el = document.getElementById(id);
+    el.addEventListener("input", () => { document.getElementById(valId).textContent = el.value; });
+  };
+  bind("humor", "humorVal"); bind("honesty", "honestyVal"); bind("rate", "rateVal");
+
+  document.getElementById("saveSettings").onclick = async function () {
+    const updates = {
+      "personality.humor": +document.getElementById("humor").value,
+      "personality.honesty": +document.getElementById("honesty").value,
+      "personality.verbosity": document.getElementById("verbosity").value,
+      "personality.custom_instructions": document.getElementById("custom").value,
+      "voice.engine": document.getElementById("engine").value,
+      "voice.rate": +document.getElementById("rate").value,
+      "permissions.tier": document.getElementById("tier").value,
+    };
+    try { await api("/settings", { method: "PATCH", body: JSON.stringify({ updates }) });
+      this.textContent = "SAVED — RESTART DAEMON"; setTimeout(() => (this.textContent = "SAVE"), 2500);
+    } catch (e) { alert("Save failed: " + e.message); }
+  };
+
+  async function learn(kind, value, title) {
+    const status = document.getElementById("learnStatus");
+    status.textContent = "learning...";
+    try {
+      const r = await api("/learn", { method: "POST", body: JSON.stringify({ kind, value, title: title || "" }) });
+      status.textContent = `Learned "${r.title}" (${r.passages_added} passages).`;
+      refreshStatus();
+    } catch (e) { status.textContent = "Failed: " + e.message; }
+  }
+  document.getElementById("learnWiki").onclick = () => learn("wikipedia", document.getElementById("wikiTitle").value.trim());
+  document.getElementById("learnUrlBtn").onclick = () => learn("url", document.getElementById("learnUrl").value.trim());
+  document.getElementById("learnTextBtn").onclick = () => learn("text", document.getElementById("learnText").value.trim(), "note");
+
+  async function refreshStatus() {
+    if (!TOKEN) return;
+    try {
+      const s = await api("/status");
+      document.getElementById("brain").textContent = s.model;
+      document.getElementById("tier").value = s.permission_tier;
+      document.getElementById("kcount").textContent = s.knowledge_passages;
+      document.getElementById("meta").querySelector("#net") &&
+        (document.getElementById("net").textContent = s.offline_mode);
+      document.getElementById("tier").dataset.loaded = "1";
+    } catch (e) { /* ignore */ }
+  }
+  async function loadSettings() {
+    if (!TOKEN) return;
+    try {
+      const s = await api("/settings");
+      document.getElementById("humor").value = s["personality.humor"]; document.getElementById("humorVal").textContent = s["personality.humor"];
+      document.getElementById("honesty").value = s["personality.honesty"]; document.getElementById("honestyVal").textContent = s["personality.honesty"];
+      document.getElementById("verbosity").value = s["personality.verbosity"];
+      document.getElementById("engine").value = s["voice.engine"];
+      document.getElementById("rate").value = s["voice.rate"]; document.getElementById("rateVal").textContent = s["voice.rate"];
+      document.getElementById("tier").value = s["permissions.tier"];
+      document.getElementById("custom").value = s["personality.custom_instructions"] || "";
+      document.getElementById("brain").textContent = "";
+    } catch (e) { /* ignore */ }
+  }
+
+  resize(); draw(); connectWs(); refreshStatus(); loadSettings();
+  document.getElementById("brain").textContent = "";
+  document.getElementById("net").textContent = "";
+})();
+</script>
+</body>
+</html>

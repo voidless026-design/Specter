@@ -11,12 +11,13 @@ from __future__ import annotations
 import json
 import queue
 import time
+from collections.abc import Callable
 
 import numpy as np
 import sounddevice as sd
 from vosk import KaldiRecognizer, Model
 
-from ev_assistant.audio.wake_word import SAMPLE_RATE
+from ev_assistant.audio.wake_word import SAMPLE_RATE, chunk_level
 
 _SILENCE_RMS_THRESHOLD = 300.0  # int16 PCM RMS; tune per mic/room if endpointing feels off
 
@@ -34,6 +35,7 @@ def record_command(
     max_duration_s: float = 15.0,
     lead_grace_s: float = 4.0,
     device: str | int | None = None,
+    on_level: Callable[[float], None] | None = None,
 ) -> str:
     """Record until the user stops talking, then return the transcript.
 
@@ -68,11 +70,15 @@ def record_command(
             now = time.monotonic()
             if chunk:
                 rec.AcceptWaveform(chunk)
+                if on_level:
+                    on_level(chunk_level(chunk))
                 if _rms(chunk) >= _SILENCE_RMS_THRESHOLD:
                     heard_speech = True
                     silence_started_at = None
                 elif heard_speech and silence_started_at is None:
                     silence_started_at = now
+            elif on_level:
+                on_level(0.0)
 
             if not heard_speech and (now - started_at) >= lead_grace_s:
                 break
