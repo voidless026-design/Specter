@@ -578,6 +578,60 @@ def cmd_learn(args: argparse.Namespace) -> None:
           f"and {stats['chunks']} chunks.")
 
 
+def cmd_eval(args: argparse.Namespace) -> None:
+    """Run the golden question set and report retrieval quality."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from ev_assistant import evaluate
+    from ev_assistant.store import Store
+
+    cfg = load_config()
+    if args.floor is not None:
+        cfg.relevance_floor = args.floor
+    if args.reranker:
+        cfg.reranker_backend = args.reranker
+
+    # Always a throwaway store: the eval measures the corpus in evals/, not
+    # whatever you happen to have learned.
+    with tempfile.TemporaryDirectory(prefix="ev-eval-") as tmp:
+        store = Store(Path(tmp) / "eval.sqlite3")
+        print("Ingesting the eval corpus...")
+        documents = evaluate.build_corpus_store(cfg, store)
+        stats = store.stats()
+        print(f"  {documents} documents, {stats['chunks']} chunks, "
+              f"{stats['embedded_chunks']} embedded via {stats['embedding_model'] or 'no model'}")
+
+        def tick(outcome) -> None:
+            if args.verbose:
+                flag = "ok " if outcome.passed else "FAIL"
+                print(f"  [{flag}] {outcome.id}  {outcome.question[:58]}")
+
+        print("Running the golden set...")
+        outcomes, summary = evaluate.run(cfg, store, progress=tick)
+
+    print()
+    print(evaluate.format_report(summary))
+
+    if args.compare:
+        previous = json.loads(Path(args.compare).read_text(encoding="utf-8"))
+        lines = evaluate.compare(previous.get("summary", {}), summary)
+        print("\nVersus " + Path(args.compare).name + ":")
+        print("\n".join("  " + line for line in lines) if lines else "  no change")
+
+    if not args.no_save:
+        path = evaluate.save_results(summary, outcomes, cfg=cfg, label=args.label)
+        print(f"\nSaved to {path}")
+
+    failed = [o for o in outcomes if not o.passed]
+    if failed and args.verbose:
+        print(f"\n{len(failed)} question(s) failed:")
+        for o in failed[:20]:
+            print(f"  {o.id} ({o.bucket}): {o.question}")
+            print(f"      wanted {o.expect or '(abstention)'}, got {o.returned[:4] or '(nothing)'}")
+
+
 # -- argument parsing -------------------------------------------------
 
 
@@ -638,6 +692,17 @@ def build_parser() -> argparse.ArgumentParser:
     p_learn.add_argument("--force", action="store_true",
                          help="Re-ingest even if the content is already known")
     p_learn.set_defaults(func=cmd_learn)
+
+    p_eval = sub.add_parser("eval", help="Measure retrieval quality against the golden question set")
+    p_eval.add_argument("--verbose", "-v", action="store_true", help="Show every question as it runs")
+    p_eval.add_argument("--floor", type=float, metavar="X",
+                        help="Override the relevance floor for this run (for calibration)")
+    p_eval.add_argument("--reranker", metavar="BACKEND",
+                        help="Override the reranker: cross-encoder | cohere | lexical")
+    p_eval.add_argument("--compare", metavar="FILE", help="Diff against an earlier results JSON")
+    p_eval.add_argument("--label", default="", metavar="NAME", help="Tag the saved results file")
+    p_eval.add_argument("--no-save", action="store_true", help="Don't write a results file")
+    p_eval.set_defaults(func=cmd_eval)
 
     p_export = sub.add_parser("export", help="Bundle E.V.'s config/memory/knowledge to move to another PC")
     p_export.add_argument("path", help="Output file, e.g. ev-brain.tar.gz")

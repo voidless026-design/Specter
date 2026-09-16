@@ -35,10 +35,18 @@ logger = logging.getLogger(__name__)
 DEFAULT_MODEL = "BAAI/bge-reranker-v2-m3"
 DEFAULT_BATCH = 16
 
-# Calibrate these against the eval set (Phase 10) rather than trusting them.
+# LEXICAL_FLOOR is calibrated: sweeping it against the golden set puts the
+# best balance at 0.10 (store recall@10 1.000, abstention precision 1.000);
+# by 0.20 precision has fallen to 0.867 because answerable questions start
+# abstaining too. Re-run `ev eval --floor X` if you change the corpus.
+#
+# The two model floors are NOT calibrated - bge-reranker-v2-m3 and Cohere
+# Rerank could not be reached from the machine this was built on, so these
+# are reasonable starting points for a sigmoid-squashed score, nothing more.
+# Run `ev eval` on a machine that can load the model and tune them.
 CROSS_ENCODER_FLOOR = 0.30
 COHERE_FLOOR = 0.30
-LEXICAL_FLOOR = 0.12
+LEXICAL_FLOOR = 0.10
 
 _WORD_RE = re.compile(r"\w[\w'-]*")
 _STOPWORDS = frozenset("""
@@ -47,6 +55,31 @@ him his how i if in into is it its me my of on or our she should so some that th
 them then there these they this those to us was we were what when where which who why
 will with would you your about
 """.split())
+
+
+# Longest first, and deliberately without "ers": stripping it turns
+# "widowmakers" into "widowmak" while "widowmaker" stays whole, so the pair
+# stops matching. Plain "s" handles it correctly.
+_SUFFIXES = ("ingly", "edly", "ing", "ies", "ied", "est", "ed", "es", "ly", "s")
+
+
+def _stem(word: str) -> str:
+    """Crude suffix stripping, to match how the keyword index tokenises.
+
+    FTS5 runs the porter stemmer, so "widowmakers" in a document already
+    matches a search for "widowmaker". Without something equivalent here the
+    reranker scores that pair at zero and throws away a document the keyword
+    index correctly found - which is how "what is a widowmaker" came back
+    empty against a corpus that answers it.
+    """
+    if len(word) < 4:
+        return word
+    for suffix in _SUFFIXES:
+        if word.endswith(suffix) and len(word) - len(suffix) >= 3:
+            stem = word[: -len(suffix)]
+            # "ies" -> "y" ("batteries" -> "batery" is wrong, "battery" right)
+            return stem + "y" if suffix in ("ies", "ied") else stem
+    return word
 
 
 def _sigmoid(x: float) -> float:
@@ -87,7 +120,7 @@ class LexicalReranker(BaseReranker):
         return True
 
     def score(self, query: str, passages: list[str]) -> list[float]:
-        terms = [w.lower() for w in _WORD_RE.findall(query or "")
+        terms = [_stem(w.lower()) for w in _WORD_RE.findall(query or "")
                  if w.lower() not in _STOPWORDS]
         if not terms:
             return [0.0] * len(passages)
@@ -95,7 +128,7 @@ class LexicalReranker(BaseReranker):
         bigrams = {f"{a} {b}" for a, b in zip(terms, terms[1:])}
         out = []
         for passage in passages:
-            words = [w.lower() for w in _WORD_RE.findall(passage or "")]
+            words = [_stem(w.lower()) for w in _WORD_RE.findall(passage or "")]
             present = set(words)
             covered = len(wanted & present) / len(wanted)
             if bigrams:
