@@ -1,0 +1,4 @@
+# Keep the checked-in baselines, ignore local runs.
+*
+!.gitignore
+!*-baseline.json
