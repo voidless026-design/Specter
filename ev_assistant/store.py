@@ -31,11 +31,17 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 EMBED_PENDING = 0
 EMBED_DONE = 1
 EMBED_FAILED = 2
+
+# Same three states for ingest-time enrichment (summary + facts), so a
+# document that has been looked at once isn't looked at again forever.
+ENRICH_PENDING = 0
+ENRICH_DONE = 1
+ENRICH_FAILED = 2
 
 
 @dataclass
@@ -51,6 +57,7 @@ class Document:
     license: str = ""
     summary: str = ""
     token_count: int = 0
+    enrichment_status: int = ENRICH_PENDING
 
 
 @dataclass
@@ -187,7 +194,8 @@ class Store:
                 published_at REAL,
                 license TEXT NOT NULL DEFAULT '',
                 summary TEXT NOT NULL DEFAULT '',
-                token_count INTEGER NOT NULL DEFAULT 0
+                token_count INTEGER NOT NULL DEFAULT 0,
+                enrichment_status INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_documents_source ON documents(source_uri);
             CREATE INDEX IF NOT EXISTS idx_documents_namespace ON documents(namespace);
@@ -236,8 +244,16 @@ class Store:
             END;
             """
         )
+        # Columns added after v1. CREATE TABLE above covers a fresh store; this
+        # covers one that already exists. Additive only - a column is never
+        # dropped or retyped, so an older E.V. can still open a newer file.
+        self._add_column(conn, "documents", "enrichment_status",
+                         "INTEGER NOT NULL DEFAULT 0")
         conn.execute(
-            "INSERT OR IGNORE INTO meta(key, value) VALUES ('schema_version', ?)",
+            "CREATE INDEX IF NOT EXISTS idx_documents_enrich ON documents(enrichment_status)"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES ('schema_version', ?)",
             (str(SCHEMA_VERSION),),
         )
         conn.commit()
@@ -247,6 +263,14 @@ class Store:
         dim = self.get_meta("embedding_dim", conn=conn)
         if self.vec_available and dim:
             self._create_vec_table(conn, int(dim))
+
+    @staticmethod
+    def _add_column(conn: sqlite3.Connection, table: str, column: str, decl: str) -> None:
+        """ALTER TABLE ... ADD COLUMN, but only when it isn't already there."""
+        existing = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if column not in existing:
+            logger.info("Migrating %s: adding %s", table, column)
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
 
     def _create_vec_table(self, conn: sqlite3.Connection, dim: int) -> None:
         conn.execute(
@@ -377,6 +401,17 @@ class Store:
             conn.execute("UPDATE documents SET summary = ? WHERE id = ?", (summary, document_id))
             conn.commit()
 
+    def replace_facts(self, document_id: int, facts: list[dict]) -> int:
+        """Set a document's facts, dropping whatever was there before.
+
+        Re-enrichment must not double a document's facts, and the extractor
+        is not deterministic enough to dedupe by statement text.
+        """
+        with self._connect() as conn:
+            conn.execute("DELETE FROM facts WHERE document_id = ?", (document_id,))
+            conn.commit()
+        return self.add_facts(document_id, facts)
+
     def add_facts(self, document_id: int, facts: list[dict]) -> int:
         now = time.time()
         with self._connect() as conn:
@@ -389,6 +424,69 @@ class Store:
                 )
             conn.commit()
         return len(facts)
+
+    # -- enrichment bookkeeping ----------------------------------------
+
+    def pending_enrichment(self, limit: int = 32) -> list[Document]:
+        """Documents still awaiting a summary and facts, oldest first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE enrichment_status = ? ORDER BY id LIMIT ?",
+                (ENRICH_PENDING, limit),
+            ).fetchall()
+        return [_document_from_row(r) for r in rows]
+
+    def mark_enriched(self, document_id: int, status: int = ENRICH_DONE) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE documents SET enrichment_status = ? WHERE id = ?",
+                         (status, document_id))
+            conn.commit()
+
+    def reset_enrichment(self, namespace: str | None = None) -> int:
+        """Requeue documents for enrichment (for `ev reindex --enrich`)."""
+        with self._connect() as conn:
+            if namespace:
+                cur = conn.execute(
+                    "UPDATE documents SET enrichment_status = ? WHERE namespace = ?",
+                    (ENRICH_PENDING, namespace),
+                )
+            else:
+                cur = conn.execute("UPDATE documents SET enrichment_status = ?",
+                                   (ENRICH_PENDING,))
+            conn.commit()
+            return cur.rowcount
+
+    def document_text(self, document_id: int, max_chars: int = 0) -> str:
+        """A document's prose, reassembled from its chunks in order.
+
+        The full text isn't stored - chunks are the source of truth - so this
+        is how enrichment gets something to summarise.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT text FROM chunks WHERE document_id = ? ORDER BY ordinal",
+                (document_id,),
+            ).fetchall()
+        text = "\n\n".join(r["text"] for r in rows)
+        if max_chars and len(text) > max_chars:
+            # Prefer a paragraph break, so the model never sees half a
+            # sentence. When the first paragraph alone is over budget there
+            # isn't one to use, so fall back to a word boundary rather than
+            # handing over a truncated word.
+            cut = text.rfind("\n\n", 0, max_chars)
+            if cut <= max_chars // 2:
+                cut = text.rfind(" ", 0, max_chars)
+            text = text[:cut] if cut > 0 else text[:max_chars]
+        return text.rstrip()
+
+    def facts_for(self, document_id: int) -> list[Fact]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM facts WHERE document_id = ? ORDER BY id", (document_id,)
+            ).fetchall()
+        return [Fact(id=r["id"], document_id=r["document_id"], statement=r["statement"],
+                     subject=r["subject"], confidence=r["confidence"],
+                     asserted_at=r["asserted_at"]) for r in rows]
 
     # -- embedding bookkeeping -----------------------------------------
 
@@ -594,11 +692,20 @@ class Store:
                 "SELECT COUNT(*) AS n FROM chunks c LEFT JOIN documents d ON d.id = c.document_id"
                 " WHERE d.id IS NULL"
             ).fetchone()["n"]
+            enriched = conn.execute(
+                "SELECT COUNT(*) AS n FROM documents WHERE enrichment_status = ?",
+                (ENRICH_DONE,),
+            ).fetchone()["n"]
+            unenriched = conn.execute(
+                "SELECT COUNT(*) AS n FROM documents WHERE enrichment_status = ?",
+                (ENRICH_PENDING,),
+            ).fetchone()["n"]
         size = self.db_path.stat().st_size if self.db_path.exists() else 0
         return {
             "documents": docs, "chunks": chunks, "facts": facts,
             "embedded_chunks": embedded, "pending_chunks": pending,
             "orphan_chunks": orphans, "by_namespace": by_ns, "by_source_type": by_type,
+            "enriched_documents": enriched, "pending_enrichment": unenriched,
             "size_bytes": size,
             "embedding_model": self.get_meta("embedding_model", ""),
             "embedding_dim": self.get_meta("embedding_dim", ""),
@@ -625,4 +732,6 @@ def _document_from_row(row) -> Document:
         namespace=row["namespace"], title=row["title"], content_hash=row["content_hash"],
         fetched_at=row["fetched_at"], published_at=row["published_at"],
         license=row["license"], summary=row["summary"], token_count=row["token_count"],
+        enrichment_status=row["enrichment_status"] if "enrichment_status" in row.keys()
+        else ENRICH_PENDING,
     )
