@@ -247,6 +247,11 @@ class Config:
         return self.data_dir / "knowledge.sqlite3"
 
     @property
+    def store_path(self) -> Path:
+        """The retrieval store: chunks, keyword index and vectors in one file."""
+        return self.data_dir / "store.sqlite3"
+
+    @property
     def vosk_model_dir(self) -> Path:
         return self.data_dir / "vosk-model"
 

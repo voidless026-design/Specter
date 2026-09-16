@@ -5,11 +5,17 @@ import pytest
 from ev_assistant.config import Config
 from ev_assistant.knowledge import Knowledge
 from ev_assistant.memory import Memory
+from ev_assistant.store import Store
 
 
 @pytest.fixture
 def memory(tmp_path) -> Memory:
     return Memory(tmp_path / "memory.sqlite3")
+
+
+@pytest.fixture
+def store(tmp_path) -> Store:
+    return Store(tmp_path / "store.sqlite3")
 
 
 @pytest.fixture
