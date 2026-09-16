@@ -9,6 +9,7 @@ LIKE-based search when it doesn't, so ingestion and lookup never hard-fail.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sqlite3
 import time
@@ -37,8 +38,20 @@ def _fts5_available() -> bool:
         return False
 
 
-def chunk_text(text: str, target_chars: int = 900) -> list[str]:
-    """Split text into ~paragraph-sized chunks on blank lines / sentences."""
+# Rough conversion for sizing chunks in tokens without shipping a tokenizer.
+# English averages ~4 characters per token; close enough for chunk budgets.
+CHARS_PER_TOKEN = 4
+
+
+def chunk_text(text: str, target_tokens: int = 500, overlap_tokens: int = 50) -> list[str]:
+    """Split text into ~`target_tokens` chunks with `overlap_tokens` of carry-over.
+
+    The overlap matters for retrieval: without it, a fact that straddles a
+    chunk boundary is split in half and neither half answers the question.
+    """
+    target_chars = max(200, target_tokens * CHARS_PER_TOKEN)
+    overlap_chars = max(0, min(overlap_tokens * CHARS_PER_TOKEN, target_chars // 2))
+
     text = text.replace("\r\n", "\n")
     paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     chunks: list[str] = []
@@ -58,6 +71,12 @@ def chunk_text(text: str, target_chars: int = 900) -> list[str]:
                 buf = ""
     if buf:
         chunks.append(buf)
+
+    if overlap_chars and len(chunks) > 1:
+        overlapped = [chunks[0]]
+        for prev, cur in zip(chunks, chunks[1:]):
+            overlapped.append((prev[-overlap_chars:] + " " + cur).strip())
+        chunks = overlapped
     return chunks
 
 
@@ -82,6 +101,20 @@ class Knowledge:
                     )
                     """
                 )
+            # Document-level ledger, kept separate from the FTS table so it can
+            # be added to an existing database without rebuilding the index.
+            # The content hash is what makes re-ingesting the same page a no-op.
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS documents (
+                    content_hash TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    passages INTEGER NOT NULL,
+                    fetched_at REAL NOT NULL
+                )
+                """
+            )
             conn.commit()
 
     @contextmanager
@@ -92,18 +125,53 @@ class Knowledge:
         finally:
             conn.close()
 
-    def add_document(self, title: str, source: str, text: str) -> int:
-        """Chunk and store a document. Returns the number of passages added."""
-        chunks = chunk_text(text)
-        now = time.time()
+    def add_document(self, title: str, source: str, text: str, force: bool = False) -> int:
+        """Chunk and store a document. Returns passages added (0 if already known).
+
+        Identical content is skipped by SHA-256 so re-running `ev learn` on the
+        same page - or crawling into a page twice - doesn't duplicate passages.
+        Pass force=True to replace an existing copy (e.g. the page changed).
+        """
+        text = (text or "").strip()
+        if not text:
+            return 0
+        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+
         with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT passages FROM documents WHERE content_hash = ?", (content_hash,)
+            ).fetchone()
+            if existing and not force:
+                return 0
+            if existing and force:
+                conn.execute("DELETE FROM passages WHERE title = ? AND source = ?", (title, source))
+                conn.execute("DELETE FROM documents WHERE content_hash = ?", (content_hash,))
+
+            chunks = chunk_text(text)
+            now = time.time()
             for chunk in chunks:
                 conn.execute(
                     "INSERT INTO passages (title, source, text, created_at) VALUES (?, ?, ?, ?)",
                     (title, source, chunk, now),
                 )
+            conn.execute(
+                "INSERT OR REPLACE INTO documents (content_hash, title, source, passages, fetched_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (content_hash, title, source, len(chunks), now),
+            )
             conn.commit()
         return len(chunks)
+
+    def knows_source(self, source: str) -> bool:
+        """True if a document from this exact source has been ingested."""
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT 1 FROM documents WHERE source = ? LIMIT 1", (source,)
+            ).fetchone() is not None
+
+    def document_count(self) -> int:
+        with self._connect() as conn:
+            return conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
 
     def passage_count(self) -> int:
         with self._connect() as conn:

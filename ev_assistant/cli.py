@@ -519,28 +519,50 @@ def cmd_import(args: argparse.Namespace) -> None:
 
 
 def cmd_learn(args: argparse.Namespace) -> None:
-    from pathlib import Path
-
     from ev_assistant import ingest
     from ev_assistant.knowledge import Knowledge
 
     cfg = load_config()
     kb = Knowledge(cfg.knowledge_path)
+
+    # Explicit flags still win; otherwise the source type is sniffed.
+    source = args.wikipedia or args.url or args.file or args.source
+    if not source:
+        print("Give something to learn: ev learn \"Water purification\" | <url> | <file>",
+              file=sys.stderr)
+        sys.exit(1)
+
+    total_added = 0
+    pages = 0
+    skipped = 0
     try:
-        if args.wikipedia:
-            title, text = ingest.from_wikipedia(args.wikipedia)
-        elif args.url:
-            title, text = ingest.from_url(args.url)
-        elif args.file:
-            title, text = ingest.from_file(Path(args.file))
-        else:
-            print("Give one of --wikipedia, --url, or --file.", file=sys.stderr)
-            sys.exit(1)
+        for doc in ingest.crawl(
+            source,
+            depth=args.depth,
+            max_pages=args.max_pages,
+            same_domain=not args.any_domain,
+        ):
+            added = kb.add_document(doc.title, doc.source, doc.text, force=args.force)
+            pages += 1
+            if added:
+                total_added += added
+                print(f"  + {doc.title}  ({added} passages)")
+            else:
+                skipped += 1
+                print(f"  = {doc.title}  (already known)")
+    except KeyboardInterrupt:
+        print("\nStopped early.")
     except Exception as e:
         print(f"Couldn't learn that: {e}", file=sys.stderr)
         sys.exit(1)
-    added = kb.add_document(title, args.wikipedia or args.url or args.file, text)
-    print(f"Learned \"{title}\" - {added} passages added. Total: {kb.passage_count()}.")
+
+    if pages == 0:
+        print("Nothing was fetched.", file=sys.stderr)
+        sys.exit(1)
+    summary = f"Learned {pages} page(s), {total_added} new passages"
+    if skipped:
+        summary += f", {skipped} already known"
+    print(f"{summary}. Knowledge base now holds {kb.passage_count()} passages.")
 
 
 # -- argument parsing -------------------------------------------------
@@ -582,11 +604,24 @@ def build_parser() -> argparse.ArgumentParser:
     p_voices.add_argument("--install-piper", action="store_true", help="Download an offline neural voice")
     p_voices.set_defaults(func=cmd_voices)
 
-    p_learn = sub.add_parser("learn", help="Teach E.V. something for her offline knowledge base")
+    p_learn = sub.add_parser(
+        "learn",
+        help="Teach E.V. something (auto-detects topic / URL / file)",
+        description='ev learn "Water purification" | ev learn https://... | ev learn notes.pdf',
+    )
+    p_learn.add_argument("source", nargs="?", help="A topic, URL, or file path")
     g = p_learn.add_mutually_exclusive_group()
-    g.add_argument("--wikipedia", metavar="TITLE", help="Learn a Wikipedia article")
-    g.add_argument("--url", metavar="URL", help="Learn a web page")
-    g.add_argument("--file", metavar="PATH", help="Learn a local .txt/.md/.pdf file")
+    g.add_argument("--wikipedia", metavar="TITLE", help="Force: treat as a Wikipedia article")
+    g.add_argument("--url", metavar="URL", help="Force: treat as a web page")
+    g.add_argument("--file", metavar="PATH", help="Force: treat as a local .txt/.md/.pdf file")
+    p_learn.add_argument("--depth", type=int, default=0, metavar="N",
+                         help="Also follow links N levels deep (default 0)")
+    p_learn.add_argument("--max-pages", type=int, default=20, metavar="N",
+                         help="Hard cap on pages fetched when crawling (default 20)")
+    p_learn.add_argument("--any-domain", action="store_true",
+                         help="When crawling, follow links off the starting domain too")
+    p_learn.add_argument("--force", action="store_true",
+                         help="Re-ingest even if the content is already known")
     p_learn.set_defaults(func=cmd_learn)
 
     p_export = sub.add_parser("export", help="Bundle E.V.'s config/memory/knowledge to move to another PC")
