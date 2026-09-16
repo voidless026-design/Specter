@@ -203,6 +203,12 @@ def plan(
     picked = list(dict.fromkeys(picked))
 
     weights = {ns: routed_weight for ns in picked}
+    # "Other" means "not the thing you asked about". When nothing was routed,
+    # nothing is other - so everything sits at the routed weight and only
+    # personal is lifted. Otherwise an unrouted question, which is most of
+    # them, would hand personal notes a 2x edge over the whole library.
+    if not picked:
+        other_weight = routed_weight
     if include_personal:
         # Always searched, always boosted - even when the question routed
         # somewhere else entirely.
