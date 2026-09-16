@@ -247,6 +247,13 @@ neighbor_window = 0
 # influence of rank.
 rrf_k = 60
 
+# -- context --
+# Hard ceiling on retrieved material handed to the brain, in tokens. The
+# highest-scoring chunks go at the start AND end of the block: attention over
+# a long context is strongest at the edges, so burying the best evidence in
+# the middle wastes it.
+context_budget_tokens = 4000
+
 [retrieval.namespaces]
 # Send particular sources to a namespace at ingest time. First match wins;
 # a bare string matches anywhere in the URL or path, "type:<x>" matches the
@@ -358,6 +365,7 @@ class Config:
     max_chunks_per_document: int = 3
     neighbor_window: int = 0
     rrf_k: int = 60
+    context_budget_tokens: int = 4000
     namespace_rules: dict[str, str] = field(default_factory=dict)
 
     control_host: str = "127.0.0.1"
@@ -583,6 +591,7 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         max_chunks_per_document=int(retrieval.get("max_chunks_per_document", 3)),
         neighbor_window=int(retrieval.get("neighbor_window", 0)),
         rrf_k=int(retrieval.get("rrf_k", 60)),
+        context_budget_tokens=int(retrieval.get("context_budget_tokens", 4000)),
         # [retrieval.namespaces] is a table of source pattern -> namespace.
         namespace_rules={str(k): str(v) for k, v in retrieval.get("namespaces", {}).items()},
         control_host=control.get("host", "127.0.0.1"),
