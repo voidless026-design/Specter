@@ -155,6 +155,34 @@ forbidden_patterns = {forbidden}
 #            your offline notes only. Good for privacy or no-internet.
 mode = "auto"
 
+[retrieval]
+# How E.V. turns text into vectors for semantic search. Everything here runs
+# on this machine - no key, no network - once the model is downloaded.
+#   auto                  - best available: the local model, then an API
+#                           endpoint if you configured one, then hashing.
+#   sentence-transformers - always the local neural model below.
+#   openai                - always the API endpoint below.
+#   hashing               - no model at all. Lexical only: it matches words,
+#                           not meaning. Works on a machine that has never
+#                           had internet, and it is the weakest option.
+embedding_backend = "auto"
+# Local model. bge-m3 is multilingual with a long context and strong
+# retrieval scores. Downloaded once (~2GB), then fully offline.
+embedding_model = "BAAI/bge-m3"
+# Blank = pick a GPU if torch finds one, else CPU. Or force "cpu" / "cuda".
+embedding_device = ""
+embedding_batch_size = 16
+# Some models want an instruction in front of queries. bge-m3 does not;
+# bge-large-en-v1.5 wants "Represent this sentence for searching relevant
+# passages: ". Leave blank unless your model's card says otherwise.
+embedding_query_prefix = ""
+# OpenAI-compatible embedding endpoint, used when embedding_backend is
+# "openai". The key comes from EV_OPENAI_API_KEY in the env file.
+openai_embedding_base_url = ""
+openai_embedding_model = ""
+# How many query vectors to keep in memory. Queries repeat; documents don't.
+query_cache_size = 256
+
 [control_api]
 host = "127.0.0.1"
 port = 8765
@@ -223,6 +251,17 @@ class Config:
     forbidden_patterns: list[str] = field(default_factory=lambda: list(DEFAULT_FORBIDDEN))
 
     offline_mode: str = "auto"
+
+    # Retrieval: embeddings and the vector index.
+    embedding_backend: str = "auto"
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_device: str = ""
+    embedding_batch_size: int = 16
+    embedding_query_prefix: str = ""
+    openai_embedding_base_url: str = ""
+    openai_embedding_model: str = ""
+    query_cache_size: int = 256
+    hashing_dimension: int = 512
 
     control_host: str = "127.0.0.1"
     control_port: int = 8765
@@ -360,6 +399,7 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
     voice = raw.get("voice", {})
     perms = raw.get("permissions", {})
     offline = raw.get("offline", {})
+    retrieval = raw.get("retrieval", {})
     control = raw.get("control_api", {})
     ui = raw.get("ui", {})
     feeds_section = raw.get("data_feeds", {})
@@ -417,6 +457,15 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         confirm_destructive=bool(perms.get("confirm_destructive", True)),
         forbidden_patterns=perms.get("forbidden_patterns", list(DEFAULT_FORBIDDEN)),
         offline_mode=offline.get("mode", "auto"),
+        embedding_backend=retrieval.get("embedding_backend", "auto"),
+        embedding_model=retrieval.get("embedding_model", "BAAI/bge-m3"),
+        embedding_device=retrieval.get("embedding_device", ""),
+        embedding_batch_size=int(retrieval.get("embedding_batch_size", 16)),
+        embedding_query_prefix=retrieval.get("embedding_query_prefix", ""),
+        openai_embedding_base_url=retrieval.get("openai_embedding_base_url", ""),
+        openai_embedding_model=retrieval.get("openai_embedding_model", ""),
+        query_cache_size=int(retrieval.get("query_cache_size", 256)),
+        hashing_dimension=int(retrieval.get("hashing_dimension", 512)),
         control_host=control.get("host", "127.0.0.1"),
         control_port=int(control.get("port", 8765)),
         remote_host=control.get("remote_host", ""),

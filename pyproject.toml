@@ -28,6 +28,10 @@ dependencies = [
 # install because it ships 371 compiled grammars and PyInstaller bundles
 # don't need them.
 code = ["tree-sitter-language-pack>=1.19"]
+# Real semantic search: a local neural embedder and cross-encoder reranker.
+# Optional because it pulls torch (~2.5GB). Without it E.V. falls back to
+# lexical hashing vectors, which match words rather than meaning.
+local-embeddings = ["sentence-transformers>=3.0"]
 dev = ["pytest>=8.0", "tree-sitter-language-pack>=1.19"]
 
 [project.scripts]
