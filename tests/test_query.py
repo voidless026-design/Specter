@@ -83,10 +83,22 @@ def test_clock_questions_skip_retrieval(text):
     assert classify_by_rules(text) == (False, "clock")
 
 
-def test_empty_and_tiny_input_skips():
+def test_empty_and_filler_input_skips():
     assert classify_by_rules("") == (False, "empty")
     assert classify_by_rules("   ") == (False, "empty")
-    assert classify_by_rules("okay sure")[0] is False
+    # A run of fillers is still just filler.
+    assert classify_by_rules("okay sure") == (False, "chitchat")
+    assert classify_by_rules("yeah ok thanks") == (False, "chitchat")
+    assert classify_by_rules("hm right") == (False, "chitchat")
+    # Nothing but stopwords has nothing to search on.
+    assert classify_by_rules("and so of the") == (False, "nothing to search on")
+
+
+def test_a_short_but_real_search_is_not_rejected():
+    # "bowline knot" is a perfectly good query; only fillers get dropped.
+    assert classify_by_rules("bowline knot") is None
+    assert classify_by_rules("tungsten") is None
+    assert classify_by_rules("melting point") is None
 
 
 @pytest.mark.parametrize("text", [

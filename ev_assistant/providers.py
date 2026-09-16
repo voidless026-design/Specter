@@ -20,6 +20,8 @@ is active, provided the model supports tool calling.
 from __future__ import annotations
 
 import json
+import threading
+import time
 import logging
 
 import httpx
@@ -307,6 +309,34 @@ def build_chain(cfg: Config) -> list[BaseProvider]:
     return chain
 
 
+# Utility calls sit on the retrieval hot path, and probing a provider that
+# isn't running costs a connection timeout every time. Retrieval has a 400ms
+# p50 budget, and three refused connections eat all of it, so the answer is
+# remembered briefly. Short enough that starting Ollama is noticed quickly.
+_AVAILABILITY_TTL = 30.0
+_availability: dict[str, tuple[float, bool]] = {}
+_availability_lock = threading.Lock()
+
+
+def _available_cached(provider: BaseProvider, cfg: Config) -> bool:
+    key = f"{provider.name}:{getattr(provider, 'model', '')}"
+    now = time.monotonic()
+    with _availability_lock:
+        cached = _availability.get(key)
+        if cached and now - cached[0] < _AVAILABILITY_TTL:
+            return cached[1]
+    result = provider.available(cfg)
+    with _availability_lock:
+        _availability[key] = (now, result)
+    return result
+
+
+def forget_availability() -> None:
+    """Drop the cache - for tests, and for `ev doctor` wanting live answers."""
+    with _availability_lock:
+        _availability.clear()
+
+
 def complete(cfg: Config, system: str, user: str, max_tokens: int = 256) -> str | None:
     """Run a short utility prompt on the first brain that answers.
 
@@ -315,7 +345,7 @@ def complete(cfg: Config, system: str, user: str, max_tokens: int = 256) -> str 
     than as an error - retrieval has to work with no model at all.
     """
     for provider in build_chain(cfg):
-        if not provider.available(cfg):
+        if not _available_cached(provider, cfg):
             continue
         reply = provider.complete(cfg, system, user, max_tokens)
         if reply:

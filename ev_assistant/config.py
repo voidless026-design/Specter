@@ -214,6 +214,39 @@ enrich_batch_size = 4
 # How much of a long document the model is shown when enriching it.
 enrich_chars = 6000
 
+# -- search --
+# Reranking is the single biggest quality gain in retrieval: a cross-encoder
+# reads the question and each candidate together, which beats comparing two
+# vectors that never saw each other. It is also what makes "I don't know"
+# possible - without a real relevance score there is nothing to threshold.
+#   auto          - the local model below, then Cohere if you set a key,
+#                   then word overlap.
+#   cross-encoder - always the local model.
+#   cohere        - always Cohere's Rerank API (key in EV_COHERE_API_KEY).
+#   lexical       - word overlap only. No download. Noticeably worse.
+reranker_backend = "auto"
+reranker_model = "BAAI/bge-reranker-v2-m3"
+reranker_batch_size = 16
+cohere_rerank_model = "rerank-v3.5"
+# Anything scoring below this is dropped, and if nothing clears it E.V. says
+# the store had nothing rather than handing over the least-bad match. Blank
+# (or -1) means "use whatever suits the reranker in use" - a threshold tuned
+# for a cross-encoder is meaningless applied to word overlap. Raise it if she
+# cites irrelevant things; lower it if she says "nothing found" too often.
+relevance_floor = -1
+# How many candidates each query variant contributes, and how many of the
+# fused pile get reranked. Higher is slower and slightly better.
+candidates_per_variant = 50
+rerank_top_n = 50
+# Cap chunks from any one document, so a long article can't fill the answer.
+max_chunks_per_document = 3
+# Pull in N chunks either side of each hit to restore continuity. 0 = off;
+# 1 is a good setting if answers feel like they start mid-thought.
+neighbor_window = 0
+# Reciprocal Rank Fusion constant. 60 is the standard; larger flattens the
+# influence of rank.
+rrf_k = 60
+
 [retrieval.namespaces]
 # Send particular sources to a namespace at ingest time. First match wins;
 # a bare string matches anywhere in the URL or path, "type:<x>" matches the
@@ -314,6 +347,17 @@ class Config:
     max_facts_per_document: int = 12
     enrich_batch_size: int = 4
     enrich_chars: int = 6000
+    reranker_backend: str = "auto"
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"
+    reranker_batch_size: int = 16
+    cohere_rerank_model: str = "rerank-v3.5"
+    cohere_api_key: str = ""
+    relevance_floor: float = -1.0
+    candidates_per_variant: int = 50
+    rerank_top_n: int = 50
+    max_chunks_per_document: int = 3
+    neighbor_window: int = 0
+    rrf_k: int = 60
     namespace_rules: dict[str, str] = field(default_factory=dict)
 
     control_host: str = "127.0.0.1"
@@ -528,6 +572,17 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         max_facts_per_document=int(retrieval.get("max_facts_per_document", 12)),
         enrich_batch_size=int(retrieval.get("enrich_batch_size", 4)),
         enrich_chars=int(retrieval.get("enrich_chars", 6000)),
+        reranker_backend=retrieval.get("reranker_backend", "auto"),
+        reranker_model=retrieval.get("reranker_model", "BAAI/bge-reranker-v2-m3"),
+        reranker_batch_size=int(retrieval.get("reranker_batch_size", 16)),
+        cohere_rerank_model=retrieval.get("cohere_rerank_model", "rerank-v3.5"),
+        cohere_api_key=secret("EV_COHERE_API_KEY"),
+        relevance_floor=float(retrieval.get("relevance_floor", -1)),
+        candidates_per_variant=int(retrieval.get("candidates_per_variant", 50)),
+        rerank_top_n=int(retrieval.get("rerank_top_n", 50)),
+        max_chunks_per_document=int(retrieval.get("max_chunks_per_document", 3)),
+        neighbor_window=int(retrieval.get("neighbor_window", 0)),
+        rrf_k=int(retrieval.get("rrf_k", 60)),
         # [retrieval.namespaces] is a table of source pattern -> namespace.
         namespace_rules={str(k): str(v) for k, v in retrieval.get("namespaces", {}).items()},
         control_host=control.get("host", "127.0.0.1"),

@@ -55,10 +55,15 @@ _PROPER_RE = re.compile(r"\b([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,})*)\b")
 _IDENTIFIER_RE = re.compile(r"\b([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*|[a-z]+_[a-z_0-9]+|\w+\(\))")
 
 # Questions that never need the store.
+# One or more filler phrases and nothing else - "hey", "thanks", "okay sure".
+_FILLER = (
+    r"hi|hey|hello|yo|sup|thanks?|thank you|cheers|ta|good (?:morning|evening|night)|"
+    r"how are you|how'?s it going|you there|are you (?:there|awake|up)|never ?mind|"
+    r"forget it|shut up|stop|cancel|nothing|ok(?:ay)?|cool|nice|lol|goodbye|bye|see ya|"
+    r"hm+|uh+|um+|er+|huh|yeah|yep|nope|nah|right|sure|wow|oops|please|mate"
+)
 _CHITCHAT_RE = re.compile(
-    r"^\s*(hi|hey|hello|yo|sup|thanks?|thank you|cheers|ta|good (morning|evening|night)|"
-    r"how are you|how'?s it going|you there|are you (there|awake|up)|never ?mind|forget it|"
-    r"shut up|stop|cancel|nothing|ok(ay)?|cool|nice|lol|goodbye|bye|see ya)\b[\s!.?]*$", re.I)
+    rf"^\s*(?:{_FILLER})(?:[\s,]+(?:{_FILLER}))*\s*[!.?]*$", re.I)
 _ARITHMETIC_RE = re.compile(
     r"^\s*(what'?s?|what is|calculate|compute|how much is)?\s*"
     r"[-+(]?\s*\d[\d\s.,]*\s*([-+*/x×÷^]|plus|minus|times|divided by|over)\s*[\d(].*$", re.I)
@@ -179,8 +184,10 @@ def classify_by_rules(text: str) -> tuple[bool, str] | None:
         return False, "arithmetic"
     if _COMMAND_RE.match(stripped) and "?" not in stripped:
         return False, "device command"
-    if len(_WORD_RE.findall(stripped)) <= 2:
-        return False, "too short to search on"
+    # Content words, not total words: "bowline knot" and "tungsten melting"
+    # are perfectly good searches, while "ok then" and "and so" are not.
+    if not [w for w in _WORD_RE.findall(stripped) if w.lower() not in _STOPWORDS]:
+        return False, "nothing to search on"
     return None
 
 
