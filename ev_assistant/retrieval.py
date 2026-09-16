@@ -318,6 +318,11 @@ class Retriever:
         if not survivors:
             # Deliberate: no chunks, but any fact that matched an entity is
             # still worth handing over - those are exact matches, not guesses.
+            logger.debug(
+                "Retrieval %r: nothing cleared the floor (best %.3f < %.3f, %d dropped) %s",
+                plan.question, trace.best_score, floor, trace.dropped_below_floor,
+                trace.describe(),
+            )
             return RetrievalResult(plan=plan, reason=BELOW_THRESHOLD, trace=trace,
                                    facts=self._facts(active_filters.entities))
 
@@ -327,7 +332,9 @@ class Retriever:
         trace.counts["facts"] = len(facts)
 
         result = RetrievalResult(chunks=chunks, facts=facts, plan=plan, reason=OK, trace=trace)
-        logger.debug("Retrieval: %s", result.explain())
+        # Per-stage timings at debug level, so a slow query can be diagnosed
+        # from the daemon's log without reproducing it under `ev retrieve`.
+        logger.debug("Retrieval %r: %s", plan.question, result.explain())
         return result
 
     # -- stage 2: candidates -------------------------------------------

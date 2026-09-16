@@ -254,9 +254,15 @@ def build_reranker(cfg) -> BaseReranker:
     if choice in ("lexical", "none", "off"):
         return LexicalReranker()
 
+    from ev_assistant import probe
+
     for candidate in (cross(), cohere()):
+        if probe.recently_failed(cfg, candidate.name):
+            logger.debug("Skipping %s - it failed to load recently", candidate.name)
+            continue
         if candidate.available():
             return candidate
+        probe.remember_failure(cfg, candidate.name)
     logger.warning(
         "No reranker available - falling back to word-overlap scoring. Retrieval will be "
         "noticeably worse. Install sentence-transformers and let %s download.",

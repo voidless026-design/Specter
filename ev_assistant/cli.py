@@ -7,6 +7,8 @@ running daemon over its localhost (or a configured remote) control API.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import logging
 import json
 import secrets
 import sys
@@ -173,7 +175,11 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     except Exception as e:
         print(warn + f" couldn't query audio devices: {e}")
 
-    # 6. System-control helpers
+    # 6. The retrieval layer
+    print("\nKnowledge base:")
+    problems += _check_retrieval(cfg, ok, bad, warn)
+
+    # 7. System-control helpers
     for tool, why in (("xdg-open", "open websites"), ("wpctl", "volume"), ("playerctl", "media"),
                       ("gnome-extensions", "GNOME extensions")):
         mark = ok if shutil.which(tool) else warn
@@ -186,6 +192,107 @@ def cmd_doctor(args: argparse.Namespace) -> None:
     else:
         print(f"{problems} thing(s) need fixing above. Fix them and run `ev doctor` again.")
         sys.exit(1)
+
+
+@contextlib.contextmanager
+def _quiet(*names: str):
+    """Silence a module's own warnings while we report the same thing better.
+
+    build_backend and build_reranker log when they fall back, which is right
+    at runtime and just noise interleaved into a health report.
+    """
+    loggers = [logging.getLogger(n) for n in names]
+    previous = [(lg, lg.level, lg.propagate) for lg in loggers]
+    for lg in loggers:
+        lg.setLevel(logging.CRITICAL)
+        lg.propagate = False
+    try:
+        yield
+    finally:
+        for lg, level, propagate in previous:
+            lg.setLevel(level)
+            lg.propagate = propagate
+
+
+def _check_retrieval(cfg: Config, ok: str, bad: str, warn: str) -> int:
+    """Everything the retrieval layer needs. Returns the number of problems."""
+    problems = 0
+    # A health check has to be a live answer, so drop any remembered "this
+    # model isn't available" before probing.
+    from ev_assistant import probe
+
+    probe.forget(cfg)
+    try:
+        from ev_assistant.store import Store, vec_supported
+    except Exception as e:
+        print(bad + f" retrieval layer won't import: {e}")
+        return 1
+
+    # sqlite-vec: without it there is no semantic search at all.
+    if vec_supported():
+        print(ok + " sqlite-vec loaded (semantic search available)")
+    else:
+        print(warn + " sqlite-vec not loaded - keyword search only. "
+                     "Fix with: pip install sqlite-vec")
+
+    try:
+        store = Store(cfg.store_path)
+        stats = store.stats()
+    except Exception as e:
+        print(bad + f" can't open the store at {cfg.store_path}: {e}")
+        return problems + 1
+
+    if stats["documents"]:
+        print(ok + f" {stats['documents']} document(s), {stats['chunks']} chunk(s) stored")
+    else:
+        print(warn + " nothing learned yet - try `ev learn \"Water purification\"`")
+
+    # Unembedded chunks: findable by keyword, invisible to semantic search.
+    if stats["pending_chunks"]:
+        print(warn + f" {stats['pending_chunks']} chunk(s) have no vector yet - run `ev reindex`")
+    elif stats["chunks"]:
+        print(ok + f" all {stats['embedded_chunks']} chunk(s) indexed")
+
+    # Orphans should be impossible; if they exist something is wrong.
+    if stats["orphan_chunks"]:
+        print(bad + f" {stats['orphan_chunks']} orphaned chunk(s) - run `ev reindex --all`")
+        problems += 1
+
+    # Embedding model, and whether its dimension still matches the index.
+    from ev_assistant.embeddings import build_backend
+
+    with _quiet("ev_assistant.embeddings", "sentence_transformers"):
+        backend = build_backend(cfg)
+    if backend.name.startswith("hashing:"):
+        print(warn + " no embedding model - using lexical hashing vectors, which match "
+                     "words rather than meaning.")
+        print("         Install one with: pip install 'ev-assistant[local-embeddings]'")
+    else:
+        print(ok + f" embedding model: {backend.describe()}")
+
+    recorded = stats["embedding_model"]
+    if recorded and recorded != backend.name and stats["embedded_chunks"]:
+        print(bad + f" the store was built with '{recorded}' but config says '{backend.name}'.")
+        print("         Vectors from two models can't share an index. "
+              "Run `ev reindex --all --model-changed`.")
+        problems += 1
+    elif recorded:
+        print(ok + f" embedding dimension matches ({stats['embedding_dim']})")
+
+    # Reranker: the single biggest quality lever.
+    from ev_assistant.rerank import LexicalReranker, build_reranker, floor_for
+
+    with _quiet("ev_assistant.rerank", "sentence_transformers"):
+        reranker = build_reranker(cfg)
+    if isinstance(reranker, LexicalReranker):
+        print(warn + " no reranker - using word overlap. Retrieval will be noticeably worse,")
+        print("         and she'll be worse at saying \"I don't know\". Install one with:")
+        print("         pip install 'ev-assistant[local-embeddings]'")
+    else:
+        print(ok + f" reranker: {reranker.describe()}")
+    print(f"         relevance floor in use: {floor_for(reranker, cfg):.2f}")
+
+    return problems
 
 
 def _check_brain(cfg: Config, ok: str, bad: str, warn: str) -> int:
@@ -632,6 +739,238 @@ def cmd_eval(args: argparse.Namespace) -> None:
             print(f"      wanted {o.expect or '(abstention)'}, got {o.returned[:4] or '(nothing)'}")
 
 
+def _open_store(cfg):
+    """The store the assistant actually uses, migrated if it's the first look."""
+    from ev_assistant.migrate import migrate_if_needed
+    from ev_assistant.store import Store
+
+    store = Store(cfg.store_path)
+    migrate_if_needed(cfg, store)
+    return store
+
+
+def _fmt_size(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} GB"
+
+
+def cmd_search(args: argparse.Namespace) -> None:
+    """Search the knowledge base without involving the brain at all."""
+    from ev_assistant.retrieval import Retriever
+
+    cfg = load_config()
+    if args.floor is not None:
+        cfg.relevance_floor = args.floor
+    store = _open_store(cfg)
+    if store.stats()["chunks"] == 0:
+        print("The knowledge base is empty. Teach her something with `ev learn`.")
+        return
+
+    result = Retriever(cfg, store).retrieve(
+        args.query, k=args.limit,
+        namespaces=[args.namespace] if args.namespace else None,
+        restrict_namespaces=bool(args.namespace),
+    )
+
+    if result.reason == "skipped":
+        print("That question doesn't need the knowledge base - she'd answer it directly.")
+        return
+    if not result.chunks and not result.facts:
+        print(f"Nothing relevant ({result.reason}). "
+              f"Best score {result.trace.best_score:.3f}, floor {result.trace.floor:.3f}.")
+        print("An empty result is a real answer - she'd say she doesn't have it.")
+        return
+
+    for fact in result.facts:
+        print(f"  fact  {fact.statement}")
+    if result.facts and result.chunks:
+        print()
+    for i, chunk in enumerate(result.chunks, start=1):
+        doc = chunk.document
+        where = f" > {chunk.heading_path}" if chunk.heading_path else ""
+        print(f"[{i}] {chunk.score:.3f}  {doc.title if doc else '?'}{where}")
+        print(f"     {doc.source_uri if doc else ''}  ({doc.namespace if doc else ''})")
+        body = chunk.text.replace("\n", " ")
+        print(f"     {body[:args.width]}{'...' if len(body) > args.width else ''}")
+        print()
+    print(f"{len(result.chunks)} result(s) in {result.trace.total_ms:.0f}ms "
+          f"(floor {result.trace.floor:.3f}, {result.trace.reranker})")
+
+
+def cmd_retrieve(args: argparse.Namespace) -> None:
+    """Search, and show every stage of how the answer was chosen."""
+    import json
+
+    from ev_assistant.retrieval import Retriever
+
+    cfg = load_config()
+    if args.floor is not None:
+        cfg.relevance_floor = args.floor
+    store = _open_store(cfg)
+    result = Retriever(cfg, store).retrieve(args.query, k=args.limit)
+
+    if args.json:
+        chunks = store.get_chunks([c.chunk_id for c in result.trace.candidates])
+        print(json.dumps({
+            "question": result.plan.question if result.plan else "",
+            "reason": result.reason,
+            "trace": {
+                "floor": result.trace.floor, "reranker": result.trace.reranker,
+                "counts": result.trace.counts, "timings_ms": result.trace.timings_ms,
+                "best_score": result.trace.best_score,
+            },
+            "candidates": [{
+                "chunk_id": c.chunk_id, "rrf": round(c.rrf, 6), "dense": round(c.dense, 4),
+                "sparse": round(c.sparse, 4), "rerank": round(c.rerank, 4),
+                "score": round(c.score, 4), "namespace": c.namespace,
+                "channels": c.channels, "ranks": c.ranks,
+                "survived": c.rerank >= result.trace.floor,
+                "title": chunks[c.chunk_id].document.title
+                         if c.chunk_id in chunks and chunks[c.chunk_id].document else "",
+            } for c in result.trace.candidates],
+        }, indent=2))
+        return
+
+    plan = result.plan
+    print(f"Question:  {args.query!r}")
+    if plan:
+        if plan.rewritten:
+            print(f"Rewritten: {plan.question!r}")
+        print(f"Retrieve:  {plan.needs_retrieval} ({plan.reason}, decided by {plan.classified_by})")
+        if not plan.needs_retrieval:
+            return
+        print(f"Namespaces: {plan.namespace_plan.describe()}")
+        print(f"Filters:    {plan.filters.describe()}")
+        print("Variants:")
+        for v in plan.variants:
+            print(f"   {v.kind:8} [{v.channel:6}] {v.text[:88]}")
+
+    trace = result.trace
+    print(f"\nCandidates: {trace.counts}")
+    print(f"Reranker:   {trace.reranker}   floor {trace.floor:.3f}   "
+          f"best {trace.best_score:.3f}   dropped {trace.dropped_below_floor}")
+
+    if trace.candidates:
+        chunks = store.get_chunks([c.chunk_id for c in trace.candidates])
+        print(f"\n{'':2} {'rrf':>8} {'dense':>6} {'sparse':>7} {'rerank':>7} {'score':>6} "
+              f"{'ns':<10} {'channels':<14} title")
+        for c in trace.candidates[:args.limit * 3]:
+            chunk = chunks.get(c.chunk_id)
+            title = chunk.document.title if chunk and chunk.document else "?"
+            mark = "ok" if c.rerank >= trace.floor else "  "
+            print(f"{mark} {c.rrf:8.5f} {c.dense:6.3f} {c.sparse:7.3f} {c.rerank:7.3f} "
+                  f"{c.score:6.3f} {c.namespace[:10]:<10} {','.join(c.channels)[:14]:<14} "
+                  f"{title[:34]}")
+        print("\n('ok' = cleared the relevance floor and was eligible to be returned)")
+
+    print(f"\nTimings: {trace.describe()}")
+    print(f"Returned {len(result.chunks)} chunk(s), {len(result.facts)} fact(s). "
+          f"Reason: {result.reason}")
+
+
+def cmd_reindex(args: argparse.Namespace) -> None:
+    """Rebuild embeddings. Resumable - safe to interrupt and run again."""
+    from ev_assistant.embeddings import Embedder, ModelMismatch
+
+    cfg = load_config()
+    store = _open_store(cfg)
+
+    if args.all or args.namespace:
+        requeued = store.reset_embeddings(namespace=args.namespace)
+        print(f"Requeued {requeued} chunk(s)" +
+              (f" in namespace {args.namespace}" if args.namespace else ""))
+    if args.model_changed:
+        store.drop_vec_table()
+        print("Dropped the vector index - it will be rebuilt for the new model.")
+    if args.enrich:
+        requeued = store.reset_enrichment(namespace=args.namespace)
+        print(f"Requeued {requeued} document(s) for summaries and facts")
+
+    embedder = Embedder(cfg, store)
+    # Check the model pinning *before* looking at what's pending: a store
+    # built with a different model has nothing pending and everything wrong,
+    # and "Nothing to index" would hide exactly the problem you came to fix.
+    try:
+        embedder.prepare()
+    except ModelMismatch as e:
+        print(str(e), file=sys.stderr)
+        print("Run `ev reindex --all --model-changed` to rebuild for the new model.",
+              file=sys.stderr)
+        sys.exit(1)
+
+    pending = store.stats()["pending_chunks"]
+    if not pending:
+        print("Nothing to index. Use --all to rebuild everything from scratch.")
+    else:
+        print(f"Indexing {pending} chunk(s) with {embedder.describe()}...")
+        try:
+            report = embedder.index_pending(progress=lambda n: print(f"  {n}/{pending}", end="\r"))
+        except KeyboardInterrupt:
+            done = store.stats()["embedded_chunks"]
+            print(f"\nStopped. {done} chunk(s) indexed - run `ev reindex` again to continue.")
+            return
+        print(f"\nIndexed {report.embedded} chunk(s)" +
+              (f", {report.failed} failed" if report.failed else "") + ".")
+        for error in report.errors[:3]:
+            print(f"  {error}", file=sys.stderr)
+
+    if args.enrich:
+        from ev_assistant.enrich import Enricher
+
+        enricher = Enricher(cfg, store)
+        print(f"Enriching ({enricher.settings.describe()})...")
+        try:
+            done = enricher.drain()
+        except KeyboardInterrupt:
+            print("\nStopped - run `ev reindex --enrich` again to continue.")
+            return
+        print(f"Summarised {done.documents} document(s), added {done.facts_added} fact(s).")
+
+
+def cmd_stats(args: argparse.Namespace) -> None:
+    """What's in the knowledge base."""
+    cfg = load_config()
+    store = _open_store(cfg)
+    s = store.stats()
+
+    print(f"Store: {cfg.store_path}")
+    print(f"  {s['documents']} documents, {s['chunks']} chunks, {s['facts']} facts")
+    print(f"  {_fmt_size(s['size_bytes'])} on disk")
+
+    if s["chunks"]:
+        pct = 100 * s["embedded_chunks"] // s["chunks"]
+        print(f"\nEmbedding coverage: {s['embedded_chunks']}/{s['chunks']} ({pct}%)")
+        if s["pending_chunks"]:
+            print(f"  {s['pending_chunks']} chunk(s) waiting - run `ev reindex`")
+        failed = s["chunks"] - s["embedded_chunks"] - s["pending_chunks"]
+        if failed:
+            print(f"  {failed} chunk(s) failed to embed - `ev reindex --all` retries them")
+    print(f"  model: {s['embedding_model'] or '(none yet)'}"
+          f"  dimension: {s['embedding_dim'] or '-'}")
+    print(f"  vector search: {'available' if s['vec_available'] else 'UNAVAILABLE (keyword only)'}")
+
+    if s["documents"]:
+        print(f"\nEnrichment: {s['enriched_documents']}/{s['documents']} documents")
+        if s["pending_enrichment"]:
+            print(f"  {s['pending_enrichment']} waiting - run `ev reindex --enrich`")
+
+    if s["by_namespace"]:
+        print("\nBy namespace:")
+        for name, count in sorted(s["by_namespace"].items(), key=lambda kv: -kv[1]):
+            print(f"  {count:6d}  {name}")
+    if s["by_source_type"]:
+        print("\nBy source type:")
+        for name, count in sorted(s["by_source_type"].items(), key=lambda kv: -kv[1]):
+            print(f"  {count:6d}  {name}")
+
+    if s["orphan_chunks"]:
+        print(f"\n!! {s['orphan_chunks']} orphaned chunk(s) - this shouldn't happen. "
+              f"Report it, or rebuild with `ev reindex --all`.")
+
+
 # -- argument parsing -------------------------------------------------
 
 
@@ -703,6 +1042,34 @@ def build_parser() -> argparse.ArgumentParser:
     p_eval.add_argument("--label", default="", metavar="NAME", help="Tag the saved results file")
     p_eval.add_argument("--no-save", action="store_true", help="Don't write a results file")
     p_eval.set_defaults(func=cmd_eval)
+
+    p_search = sub.add_parser("search", help="Search the knowledge base - no brain, just results")
+    p_search.add_argument("query", help="What to look for")
+    p_search.add_argument("--limit", "-n", type=int, default=8, metavar="N", help="How many results")
+    p_search.add_argument("--namespace", metavar="NS",
+                          help="Restrict to one namespace (personal, code, reference, news, domain:x)")
+    p_search.add_argument("--floor", type=float, metavar="X", help="Override the relevance floor")
+    p_search.add_argument("--width", type=int, default=150, metavar="N", help="Preview width")
+    p_search.set_defaults(func=cmd_search)
+
+    p_ret = sub.add_parser("retrieve", help="Search and explain every stage of how it chose")
+    p_ret.add_argument("query", help="What to look for")
+    p_ret.add_argument("--explain", action="store_true", help="(default; kept for readability)")
+    p_ret.add_argument("--json", action="store_true", help="Machine-readable trace")
+    p_ret.add_argument("--limit", "-n", type=int, default=8, metavar="N", help="How many results")
+    p_ret.add_argument("--floor", type=float, metavar="X", help="Override the relevance floor")
+    p_ret.set_defaults(func=cmd_retrieve)
+
+    p_reindex = sub.add_parser("reindex", help="Rebuild embeddings (resumable)")
+    p_reindex.add_argument("--all", action="store_true", help="Re-embed everything, not just what's pending")
+    p_reindex.add_argument("--namespace", metavar="NS", help="Limit to one namespace")
+    p_reindex.add_argument("--model-changed", action="store_true",
+                           help="Drop the vector index first - needed after changing embedding_model")
+    p_reindex.add_argument("--enrich", action="store_true",
+                           help="Also regenerate summaries and facts")
+    p_reindex.set_defaults(func=cmd_reindex)
+
+    sub.add_parser("stats", help="What's in the knowledge base").set_defaults(func=cmd_stats)
 
     p_export = sub.add_parser("export", help="Bundle E.V.'s config/memory/knowledge to move to another PC")
     p_export.add_argument("path", help="Output file, e.g. ev-brain.tar.gz")

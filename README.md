@@ -23,6 +23,7 @@ control.
 - [System control & permissions](#system-control--permissions)
 - [Voice](#voice)
 - [Offline mode & the knowledge base](#offline-mode--the-knowledge-base)
+- [How she finds things](#how-she-finds-things)
 - [Jegeo](#jegeo)
 - [Moving E.V. to another PC](#moving-ev-to-another-pc)
 - [Configuration](#configuration)
@@ -117,6 +118,8 @@ Uninstall with `bash scripts/uninstall-fedora.sh`.
 | Any shell / SSH | `ev ask "what's the weather"` (`-q` to not speak it aloud; `-y` to pre-approve a destructive action) |
 | Check she's alive | `ev status` |
 | Stop her | `ev stop` |
+| Search her notes directly | `ev search "which knot won't slip"` (no brain call) |
+| See what she knows | `ev stats` |
 
 `ev ask`/`status`/`stop`/`gui` read her token automatically from
 `~/.config/ev-assistant/env`, so they work from any shell, including a fresh
@@ -220,11 +223,82 @@ addresses are refused. Re-learning the same page is a no-op - content is
 de-duplicated by hash - so you can safely re-run a crawl to pick up new pages.
 Use `--force` to re-ingest a page whose content changed.
 
-Everything you teach her is stored in a local full-text index and read back
-when offline - a survivalist/reference brain for no-signal situations. For
-real generated answers offline (not just passage lookup), install
+Everything you teach her goes into a single-file SQLite store with both a
+keyword index and a vector index. When you ask something, the question is
+planned, searched across both, reranked, and the best passages are handed to
+her brain with source labels she can cite - or, when nothing is relevant
+enough, she's told the store had nothing and says so instead of guessing.
+See [How she finds things](#how-she-finds-things) below.
+
+For real generated answers offline (not just passage lookup), install
 [Ollama](https://ollama.com), pull a small model, and set
 `[offline] ollama_model` (e.g. `llama3.2`).
+
+## How she finds things
+
+Asking E.V. a question does not just grep her notes. The pipeline is:
+
+1. **Decide whether to search at all.** "Thanks", "open Firefox" and
+   "what's 17 times 3" never touch the knowledge base. Retrieving on
+   everything is how an assistant gets worse.
+2. **Rewrite and expand.** "What about its melting point?" becomes a
+   standalone question using the last few turns, then fans out into a
+   natural-language form, a keyword-only form for BM25, and a hypothetical
+   answer paragraph (which matches document prose better than a question
+   does).
+3. **Search both indexes at once** - vector similarity and keyword BM25 -
+   plus a direct lookup of any names the question mentioned.
+4. **Fuse** the rankings, then **rerank** the shortlist with a cross-encoder
+   that reads the question and each passage together. This step is the
+   single biggest quality difference in the whole system.
+5. **Apply a relevance floor.** If nothing clears it, she returns nothing,
+   and says the answer is from general knowledge rather than your notes.
+   An empty result is a real answer.
+6. **Assemble the context**: best passages at the start *and* end of the
+   block (attention is weakest in the middle), each tagged `[S1]`, `[S2]`
+   so she can cite them. Tags appear in text and are dropped from speech.
+
+### Looking inside it
+
+```bash
+ev search "which knot won't slip"     # ranked results, no brain call
+ev retrieve --explain "..."           # every stage: plan, scores, what survived the floor
+ev retrieve "..." --json              # the same, machine-readable
+ev stats                              # documents, chunks, coverage, namespaces
+ev reindex                            # build any missing vectors (resumable)
+ev reindex --all --model-changed      # rebuild after changing the embedding model
+ev eval                               # measure retrieval quality (see evals/README.md)
+```
+
+`ev doctor` checks all of it: sqlite-vec loaded, embedding model present,
+reranker present, dimension match, unembedded chunks, orphaned rows.
+
+### Namespaces
+
+Documents are filed as `personal`, `code`, `reference`, `news`, or a
+`domain:yours`. A coding question is boosted toward `code` without being
+locked out of everything else - a misrouted question that finds nothing is
+worse than one that ranks imperfectly. `personal` is always searched and
+always ranked above the rest: what she knows about *you* outranks what she
+read on the internet.
+
+### The models, and what happens without them
+
+| | Default | Without it |
+|---|---|---|
+| Embeddings | `BAAI/bge-m3`, local, ~2GB | Lexical hashing vectors - matches words, not meaning |
+| Reranking | `BAAI/bge-reranker-v2-m3`, local | Word overlap - noticeably worse, and worse at saying "I don't know" |
+
+Both download once and then work entirely offline. Install them with:
+
+```bash
+pip install 'ev-assistant[local-embeddings]'
+```
+
+Without them she still works — keyword search, vector search on hashed
+lexical vectors, and abstention all function — but the quality difference is
+real and `ev doctor` will tell you so. `evals/README.md` measures exactly
+what the gap costs.
 
 ## Jegeo
 
@@ -328,18 +402,30 @@ Built and tested in a Linux container with no microphone, speaker, GNOME
 desktop, or Windows machine, and with restricted network egress. So:
 
 - **Verified here:** every module imports cleanly; the full unit-test suite
-  passes (85 tests - config/env-file secrets, memory, knowledge base and
-  search, wake-word matching, the permission-tier and confirmation gates on
-  the executor, the offline command parser, the settings editor, the Claude
-  tool-use loop with a mocked API, and the control API incl. auth,
-  `/ask`, `/learn`, settings, and the WebSocket); the CLI's non-network
-  commands end-to-end; the server serving the GUI and streaming state; and
-  TTS actually speaking via `espeak-ng`.
+  passes (627 tests - config/env-file secrets, memory, wake-word matching,
+  the permission-tier and confirmation gates on the executor, the offline
+  command parser, the settings editor, the provider tool-use loop against a
+  real local stub server, the control API incl. auth, `/ask`, `/learn`,
+  settings and the WebSocket, and the whole retrieval layer: schema and
+  index triggers, chunking, embeddings, namespaces, query planning, hybrid
+  search, reranking, the relevance floor, context assembly and citations);
+  `ev learn` / `search` / `retrieve` / `reindex` / `stats` / `eval` / `doctor`
+  run end-to-end against a real store; the server serving the GUI and
+  streaming state; and TTS actually speaking via `espeak-ng`.
 - **Needs your real machine to confirm** (standard patterns, not verified
   end-to-end here): the live microphone wake/record loop, the Australian
   edge-tts voice (blocked network here), Piper install, the GNOME/app/media
   system actions (no desktop here), launching Jegeo, the first-run speech
   model download, and the Fedora/Windows install and bundle scripts.
+- **Retrieval quality specifically.** `huggingface.co` was blocked here, so
+  **neither `BAAI/bge-m3` nor `BAAI/bge-reranker-v2-m3` could be downloaded
+  or measured.** Everything was built behind interfaces and verified against
+  the fallbacks (lexical hashing vectors, word-overlap reranking), and the
+  sentence-transformers adapter itself is tested against the real library
+  using a weightless model. The checked-in eval baseline is a
+  *fallback-quality* number, not a target number — see `evals/README.md`,
+  which says exactly which numbers are real and which need your machine.
+  Run `ev eval` there and tune `relevance_floor` against your own results.
 
 Run `ev mic-test` first on your machine - it's the fastest way to confirm the
 audio path end-to-end.
@@ -355,22 +441,40 @@ python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 
 ```
 ev_assistant/
-  cli.py           the `ev` command (init, daemon, ask, gui, mic-test, learn, export/import, ...)
+  cli.py           the `ev` command (init, daemon, ask, gui, learn, search, stats, eval, ...)
   daemon.py        wake -> listen -> think/act -> speak loop + feeds + API/GUI
   server.py        localhost control API + GUI host + WebSocket state stream
-  brain.py         online (Claude tool-use loop) vs offline routing
-  offline.py       offline rule-based commands + local knowledge answering
-  personality.py   TARS-inspired, adjustable system prompt
+  brain.py         provider routing, retrieval integration, citations
+  providers.py     Claude / Ollama / OpenAI-compatible brains, one interface
+  offline.py       offline rule-based commands
+  personality.py   adjustable system prompt, incl. the citation rules
   memory.py        SQLite conversation + fact store
-  knowledge.py     SQLite FTS5 offline knowledge base
+
+  -- the retrieval layer --
+  store.py         one SQLite file: documents, chunks, facts, FTS5 + sqlite-vec
+  chunking.py      structure-aware chunking (headings, sentences, code)
+  embeddings.py    bge-m3 / API / hashing backends, resumable indexing
+  rerank.py        cross-encoder / Cohere / word-overlap, and the floor
+  query.py         should we search at all, rewriting, variants, filters
+  namespaces.py    routing at ingest, soft preference at query time
+  retrieval.py     hybrid search, RRF fusion, rerank, floor, diversify
+  context.py       budgeted context block with citable source tags
+  enrich.py        background summaries and atomic facts
+  library.py       the one ingest path (CLI, API, feeds all use it)
+  migrate.py       carries an old knowledge.sqlite3 into the store
+  evaluate.py      the `ev eval` harness
+  probe.py         remembers which models aren't available, so CLI stays fast
+
   ingest.py        `ev learn` fetchers (Wikipedia / URL / file)
+  knowledge.py     the pre-retrieval knowledge base (migrated from, kept for offline)
   data_feeds.py    background news/weather ingestion
   config.py        TOML config + env-file secrets
   settings.py      in-place config editing for the GUI
   net.py / bus.py  connectivity check / live-state bus for the visualizer
-  tools/           system-control executor + Claude tool schemas
+  tools/           system-control executor + tool schemas
   audio/           wake word (Vosk), STT, TTS (edge/piper/espeak)
   gui/index.html   the cyberpunk console
+evals/             golden question set + corpus for `ev eval`
 scripts/           Fedora + Windows install/bundle packaging
-tests/             85 unit tests (no audio/network/API key needed)
+tests/             627 unit tests (no audio/network/API key needed)
 ```
