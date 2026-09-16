@@ -183,6 +183,27 @@ openai_embedding_model = ""
 # How many query vectors to keep in memory. Queries repeat; documents don't.
 query_cache_size = 256
 
+# Namespaces keep a coding question from pulling chemistry chunks. They are a
+# preference, not a filter: a question routed to "code" still sees everything
+# else, just ranked lower. These are the multipliers.
+#   personal - what E.V. knows about YOU. Always searched, always on top.
+#   routed   - the namespace the question looked like it was about.
+#   other    - everything else. Demoted, never excluded.
+personal_namespace_boost = 1.25
+routed_namespace_boost = 1.0
+other_namespace_weight = 0.6
+
+[retrieval.namespaces]
+# Send particular sources to a namespace at ingest time. First match wins;
+# a bare string matches anywhere in the URL or path, "type:<x>" matches the
+# source type. Anything unmatched falls back to sensible defaults (Wikipedia
+# and web pages are reference, feeds are news, your own files are personal,
+# and anything that looks like source code is code).
+# Examples:
+#   "github.com/voidless026-design" = "code"
+#   "type:feed" = "news"
+#   "organic-chemistry" = "domain:chem"
+
 [control_api]
 host = "127.0.0.1"
 port = 8765
@@ -262,6 +283,10 @@ class Config:
     openai_embedding_model: str = ""
     query_cache_size: int = 256
     hashing_dimension: int = 512
+    personal_namespace_boost: float = 1.25
+    routed_namespace_boost: float = 1.0
+    other_namespace_weight: float = 0.6
+    namespace_rules: dict[str, str] = field(default_factory=dict)
 
     control_host: str = "127.0.0.1"
     control_port: int = 8765
@@ -466,6 +491,11 @@ def load_config(path: Path | None = None, env_path: Path | None = None) -> Confi
         openai_embedding_model=retrieval.get("openai_embedding_model", ""),
         query_cache_size=int(retrieval.get("query_cache_size", 256)),
         hashing_dimension=int(retrieval.get("hashing_dimension", 512)),
+        personal_namespace_boost=float(retrieval.get("personal_namespace_boost", 1.25)),
+        routed_namespace_boost=float(retrieval.get("routed_namespace_boost", 1.0)),
+        other_namespace_weight=float(retrieval.get("other_namespace_weight", 0.6)),
+        # [retrieval.namespaces] is a table of source pattern -> namespace.
+        namespace_rules={str(k): str(v) for k, v in retrieval.get("namespaces", {}).items()},
         control_host=control.get("host", "127.0.0.1"),
         control_port=int(control.get("port", 8765)),
         remote_host=control.get("remote_host", ""),
