@@ -1,0 +1,15 @@
+[Unit]
+Description=E.V. voice assistant
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__INSTALL_DIR__
+EnvironmentFile=__CONFIG_DIR__/env
+ExecStart=__VENV_BIN__/ev daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

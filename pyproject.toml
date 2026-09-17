@@ -1,0 +1,48 @@
+[project]
+name = "ev-assistant"
+version = "0.2.0"
+description = "E.V. - an always-on, voice-activated personal assistant"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "anthropic>=0.69.0",
+    "vosk>=0.3.45",
+    "sounddevice>=0.4.7",
+    "numpy>=1.26",
+    "edge-tts>=6.1",
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "websockets>=12.0",
+    "httpx>=0.27",
+    "feedparser>=6.0.11",
+    "platformdirs>=4.2",
+    "pypdf>=4.0",
+    "sqlite-vec>=0.1.6",
+]
+
+[project.optional-dependencies]
+# Better chunking for source files: tree-sitter splits on real function and
+# class boundaries. Optional - without it chunking falls back to a regex/line
+# splitter, which is fine for the common languages. Left out of the default
+# install because it ships 371 compiled grammars and PyInstaller bundles
+# don't need them.
+code = ["tree-sitter-language-pack>=1.19"]
+# Real semantic search: a local neural embedder and cross-encoder reranker.
+# Optional because it pulls torch (~2.5GB). Without it E.V. falls back to
+# lexical hashing vectors, which match words rather than meaning.
+local-embeddings = ["sentence-transformers>=3.0"]
+dev = ["pytest>=8.0", "tree-sitter-language-pack>=1.19"]
+
+[project.scripts]
+ev = "ev_assistant.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ev_assistant*"]
+
+[tool.setuptools.package-data]
+ev_assistant = ["gui/*.html"]

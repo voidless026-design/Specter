@@ -1,0 +1,1952 @@
+{
+  "recorded_at": "20260916-203759",
+  "label": "lexical-baseline",
+  "config": {
+    "embedding_backend": "auto",
+    "embedding_model": "BAAI/bge-m3",
+    "reranker_backend": "auto",
+    "reranker_model": "BAAI/bge-reranker-v2-m3",
+    "relevance_floor": -1.0,
+    "rrf_k": 60,
+    "candidates_per_variant": 50,
+    "rerank_top_n": 50,
+    "max_chunks_per_document": 3,
+    "neighbor_window": 0,
+    "personal_namespace_boost": 1.25,
+    "other_namespace_weight": 0.6
+  },
+  "summary": {
+    "questions": 85,
+    "passed": 69,
+    "store": {
+      "n": 47,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 0.9592,
+      "abstained_wrongly": 0
+    },
+    "brain": {
+      "n": 16,
+      "abstention_precision": 1.0,
+      "abstention_recall": 0.5625,
+      "leaked": [
+        "brain-003",
+        "brain-004",
+        "brain-007",
+        "brain-009",
+        "brain-013",
+        "brain-014",
+        "brain-016"
+      ]
+    },
+    "followup": {
+      "n": 10,
+      "recall@5": 0.8,
+      "recall@10": 0.8,
+      "rewritten": 0
+    },
+    "adversarial": {
+      "n": 12,
+      "recall@3": 1.0,
+      "decoyed": [
+        "adv-001",
+        "adv-004",
+        "adv-005",
+        "adv-006",
+        "adv-010",
+        "adv-011",
+        "adv-012"
+      ]
+    },
+    "mrr_overall": 0.9378,
+    "latency_ms": {
+      "total_mean": 31.6687,
+      "total_p50": 21.51,
+      "by_stage_mean": {
+        "plan": 0.7741,
+        "embed": 1.6026,
+        "search": 3.7193,
+        "fuse": 0.068,
+        "shortlist": 1.2447,
+        "rerank": 6.3372,
+        "materialise": 0.9507,
+        "wall": 17.0728
+      }
+    }
+  },
+  "questions": [
+    {
+      "id": "store-001",
+      "bucket": "store",
+      "question": "how long should I boil water to make it safe to drink",
+      "expect": [
+        "water-purification"
+      ],
+      "avoid": [],
+      "returned": [
+        "water-purification",
+        "bowline-river",
+        "first-aid",
+        "tungsten",
+        "sourdough-starter",
+        "solar-power",
+        "shelter",
+        "my-shed",
+        "photosynthesis"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5
+    },
+    {
+      "id": "store-002",
+      "bucket": "store",
+      "question": "does boiling time change at high altitude",
+      "expect": [
+        "water-purification"
+      ],
+      "avoid": [],
+      "returned": [
+        "water-purification",
+        "food-foraging",
+        "my-vehicle",
+        "bread-baking",
+        "first-aid",
+        "tungsten"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.3
+    },
+    {
+      "id": "store-003",
+      "bucket": "store",
+      "question": "why filter cloudy water before treating it",
+      "expect": [
+        "water-purification"
+      ],
+      "avoid": [],
+      "returned": [
+        "water-purification",
+        "my-shed",
+        "shelter",
+        "photosynthesis",
+        "bowline-river",
+        "sourdough-starter",
+        "parser"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.6625
+    },
+    {
+      "id": "store-004",
+      "bucket": "store",
+      "question": "is iodine effective against cryptosporidium",
+      "expect": [
+        "water-purification"
+      ],
+      "avoid": [],
+      "returned": [
+        "water-purification",
+        "shelter",
+        "signalling",
+        "food-foraging",
+        "antibiotics"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.7292
+    },
+    {
+      "id": "store-005",
+      "bucket": "store",
+      "question": "which knot makes a loop that will not slip under load",
+      "expect": [
+        "knots"
+      ],
+      "avoid": [],
+      "returned": [
+        "knots",
+        "rope-manufacture",
+        "bowline-river",
+        "retention",
+        "fire-making",
+        "solar-power"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.875
+    },
+    {
+      "id": "store-006",
+      "bucket": "store",
+      "question": "why do climbers prefer the figure eight to the bowline",
+      "expect": [
+        "knots"
+      ],
+      "avoid": [],
+      "returned": [
+        "knots",
+        "bowline-river",
+        "food-foraging",
+        "rope-manufacture",
+        "sourdough-starter",
+        "my-preferences"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5125
+    },
+    {
+      "id": "store-007",
+      "bucket": "store",
+      "question": "what knot should I use for a tent guy line",
+      "expect": [
+        "knots"
+      ],
+      "avoid": [],
+      "returned": [
+        "knots",
+        "bowline-river",
+        "navigation",
+        "tungsten",
+        "my-preferences",
+        "first-aid",
+        "photosynthesis",
+        "rope-manufacture"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.45
+    },
+    {
+      "id": "store-008",
+      "bucket": "store",
+      "question": "what tinder still catches a spark when wet",
+      "expect": [
+        "fire-making"
+      ],
+      "avoid": [],
+      "returned": [
+        "fire-making",
+        "rope-manufacture"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.6
+    },
+    {
+      "id": "store-009",
+      "bucket": "store",
+      "question": "why does a new fire go out when I add big logs",
+      "expect": [
+        "fire-making"
+      ],
+      "avoid": [],
+      "returned": [
+        "fire-making",
+        "food-foraging",
+        "tungsten",
+        "signalling",
+        "retention",
+        "knots",
+        "shelter",
+        "navigation"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.1071
+    },
+    {
+      "id": "store-010",
+      "bucket": "store",
+      "question": "how hot are the sparks from a ferro rod",
+      "expect": [
+        "fire-making"
+      ],
+      "avoid": [],
+      "returned": [
+        "fire-making",
+        "signalling",
+        "solar-power",
+        "photosynthesis"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "store-011",
+      "bucket": "store",
+      "question": "where should I not build a shelter overnight",
+      "expect": [
+        "shelter"
+      ],
+      "avoid": [],
+      "returned": [
+        "shelter",
+        "fire-making",
+        "first-aid",
+        "bread-baking",
+        "parser",
+        "water-purification",
+        "food-foraging",
+        "my-shed"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "store-012",
+      "bucket": "store",
+      "question": "how thick should ground insulation under me be",
+      "expect": [
+        "shelter"
+      ],
+      "avoid": [],
+      "returned": [
+        "shelter",
+        "first-aid",
+        "rope-manufacture",
+        "solar-power",
+        "retention",
+        "knots",
+        "fire-making"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5625
+    },
+    {
+      "id": "store-013",
+      "bucket": "store",
+      "question": "what is a widowmaker",
+      "expect": [
+        "shelter"
+      ],
+      "avoid": [],
+      "returned": [
+        "shelter"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.75
+    },
+    {
+      "id": "store-014",
+      "bucket": "store",
+      "question": "what is magnetic declination and why does it matter",
+      "expect": [
+        "navigation"
+      ],
+      "avoid": [],
+      "returned": [
+        "navigation",
+        "antibiotics",
+        "signalling",
+        "bowline-river"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5
+    },
+    {
+      "id": "store-015",
+      "bucket": "store",
+      "question": "how do I find south in the southern hemisphere at night",
+      "expect": [
+        "navigation"
+      ],
+      "avoid": [],
+      "returned": [
+        "navigation",
+        "photosynthesis",
+        "retention"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.6625
+    },
+    {
+      "id": "store-016",
+      "bucket": "store",
+      "question": "how does the shadow stick method work",
+      "expect": [
+        "navigation"
+      ],
+      "avoid": [],
+      "returned": [
+        "navigation",
+        "fire-making",
+        "my-preferences",
+        "food-foraging",
+        "rope-manufacture",
+        "knots",
+        "bowline-river"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.4583
+    },
+    {
+      "id": "store-017",
+      "bucket": "store",
+      "question": "where exactly should a tourniquet go",
+      "expect": [
+        "first-aid"
+      ],
+      "avoid": [],
+      "returned": [
+        "first-aid",
+        "navigation"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "store-018",
+      "bucket": "store",
+      "question": "why is it bad when a hypothermic person stops shivering",
+      "expect": [
+        "first-aid"
+      ],
+      "avoid": [],
+      "returned": [
+        "first-aid",
+        "bowline-river",
+        "rope-manufacture"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.45
+    },
+    {
+      "id": "store-019",
+      "bucket": "store",
+      "question": "how long should I run water over a burn",
+      "expect": [
+        "first-aid"
+      ],
+      "avoid": [],
+      "returned": [
+        "solar-power",
+        "bowline-river",
+        "navigation",
+        "first-aid",
+        "bread-baking",
+        "fire-making",
+        "shelter",
+        "water-purification"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 4,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.45
+    },
+    {
+      "id": "store-020",
+      "bucket": "store",
+      "question": "what is the universal edibility test and why is it a last resort",
+      "expect": [
+        "food-foraging"
+      ],
+      "avoid": [],
+      "returned": [
+        "food-foraging",
+        "solar-power",
+        "rope-manufacture",
+        "my-vehicle",
+        "my-shed"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.9375
+    },
+    {
+      "id": "store-021",
+      "bucket": "store",
+      "question": "what insects are unsafe to eat",
+      "expect": [
+        "food-foraging"
+      ],
+      "avoid": [],
+      "returned": [
+        "food-foraging"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.25
+    },
+    {
+      "id": "store-022",
+      "bucket": "store",
+      "question": "what is the international distress signal",
+      "expect": [
+        "signalling"
+      ],
+      "avoid": [],
+      "returned": [
+        "signalling"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 1.0
+    },
+    {
+      "id": "store-023",
+      "bucket": "store",
+      "question": "how far away can a signal mirror be seen",
+      "expect": [
+        "signalling"
+      ],
+      "avoid": [],
+      "returned": [
+        "signalling",
+        "rope-manufacture",
+        "bow-archery",
+        "photosynthesis"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.3625
+    },
+    {
+      "id": "store-024",
+      "bucket": "store",
+      "question": "what ground to air symbol means I need a doctor",
+      "expect": [
+        "signalling"
+      ],
+      "avoid": [],
+      "returned": [
+        "signalling",
+        "fire-making",
+        "sourdough-starter",
+        "shelter",
+        "my-preferences",
+        "bowline-river"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.3
+    },
+    {
+      "id": "store-025",
+      "bucket": "store",
+      "question": "what is the melting point of tungsten",
+      "expect": [
+        "tungsten"
+      ],
+      "avoid": [],
+      "returned": [
+        "tungsten",
+        "melting-points",
+        "my-vehicle",
+        "solar-power",
+        "antibiotics"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.875
+    },
+    {
+      "id": "store-026",
+      "bucket": "store",
+      "question": "why is tungsten called wolfram",
+      "expect": [
+        "tungsten"
+      ],
+      "avoid": [],
+      "returned": [
+        "tungsten",
+        "navigation",
+        "shelter",
+        "water-purification",
+        "my-preferences"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5
+    },
+    {
+      "id": "store-027",
+      "bucket": "store",
+      "question": "why do plants look green",
+      "expect": [
+        "photosynthesis"
+      ],
+      "avoid": [],
+      "returned": [
+        "photosynthesis",
+        "food-foraging",
+        "my-shed",
+        "shelter",
+        "signalling"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5
+    },
+    {
+      "id": "store-028",
+      "bucket": "store",
+      "question": "what does rubisco do",
+      "expect": [
+        "photosynthesis"
+      ],
+      "avoid": [],
+      "returned": [
+        "photosynthesis"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.75
+    },
+    {
+      "id": "store-029",
+      "bucket": "store",
+      "question": "how do cacti avoid losing water while photosynthesising",
+      "expect": [
+        "photosynthesis"
+      ],
+      "avoid": [],
+      "returned": [
+        "photosynthesis",
+        "shelter",
+        "water-purification",
+        "sourdough-starter",
+        "first-aid",
+        "food-foraging",
+        "my-shed",
+        "bread-baking"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "store-030",
+      "bucket": "store",
+      "question": "where did I put the blue tarp",
+      "expect": [
+        "my-shed"
+      ],
+      "avoid": [],
+      "returned": [
+        "my-shed",
+        "photosynthesis",
+        "navigation"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.625
+    },
+    {
+      "id": "store-031",
+      "bucket": "store",
+      "question": "which toolbox has the chainsaw file in it",
+      "expect": [
+        "my-shed"
+      ],
+      "avoid": [],
+      "returned": [
+        "my-shed"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.75
+    },
+    {
+      "id": "store-032",
+      "bucket": "store",
+      "question": "what tyre pressure should the car have",
+      "expect": [
+        "my-vehicle"
+      ],
+      "avoid": [],
+      "returned": [
+        "my-vehicle",
+        "first-aid",
+        "melting-points"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.875
+    },
+    {
+      "id": "store-033",
+      "bucket": "store",
+      "question": "how much oil does my engine take",
+      "expect": [
+        "my-vehicle"
+      ],
+      "avoid": [],
+      "returned": [
+        "bow-archery",
+        "fire-making",
+        "my-vehicle",
+        "photosynthesis",
+        "my-preferences",
+        "food-foraging",
+        "solar-power"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 3,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "store-034",
+      "bucket": "store",
+      "question": "how do I take my coffee",
+      "expect": [
+        "my-preferences"
+      ],
+      "avoid": [],
+      "returned": [
+        "my-preferences",
+        "food-foraging",
+        "photosynthesis",
+        "bow-archery",
+        "fire-making"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 1.0
+    },
+    {
+      "id": "store-035",
+      "bucket": "store",
+      "question": "what units should you use when giving me directions",
+      "expect": [
+        "my-preferences"
+      ],
+      "avoid": [],
+      "returned": [
+        "my-preferences",
+        "first-aid",
+        "tungsten",
+        "rope-manufacture",
+        "photosynthesis",
+        "bread-baking",
+        "navigation",
+        "bow-archery"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "store-036",
+      "bucket": "store",
+      "question": "what does the parse_query function do",
+      "expect": [
+        "parser"
+      ],
+      "avoid": [],
+      "returned": [
+        "parser"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "store-037",
+      "bucket": "store",
+      "question": "what exception is raised when a query cannot be parsed",
+      "expect": [
+        "parser"
+      ],
+      "avoid": [],
+      "returned": [
+        "parser"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.6625
+    },
+    {
+      "id": "store-038",
+      "bucket": "store",
+      "question": "how long are operational logs kept",
+      "expect": [
+        "retention"
+      ],
+      "avoid": [],
+      "returned": [
+        "retention",
+        "solar-power",
+        "bowline-river",
+        "sourdough-starter",
+        "fire-making",
+        "bread-baking",
+        "navigation"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.6458
+    },
+    {
+      "id": "store-039",
+      "bucket": "store",
+      "question": "how quickly must a deletion request be honoured",
+      "expect": [
+        "retention"
+      ],
+      "avoid": [],
+      "returned": [
+        "retention"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5125
+    },
+    {
+      "id": "store-040",
+      "bucket": "store",
+      "question": "do antibiotics help with the flu",
+      "expect": [
+        "antibiotics"
+      ],
+      "avoid": [],
+      "returned": [
+        "first-aid",
+        "antibiotics"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 2,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.25
+    },
+    {
+      "id": "store-041",
+      "bucket": "store",
+      "question": "how do bacteria share resistance genes",
+      "expect": [
+        "antibiotics"
+      ],
+      "avoid": [],
+      "returned": [
+        "antibiotics",
+        "sourdough-starter",
+        "water-purification"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.6458
+    },
+    {
+      "id": "store-042",
+      "bucket": "store",
+      "question": "how deep can I discharge a lithium iron phosphate battery",
+      "expect": [
+        "solar-power"
+      ],
+      "avoid": [],
+      "returned": [
+        "solar-power",
+        "melting-points"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.6
+    },
+    {
+      "id": "store-043",
+      "bucket": "store",
+      "question": "is mppt actually better than pwm",
+      "expect": [
+        "solar-power"
+      ],
+      "avoid": [],
+      "returned": [
+        "solar-power",
+        "rope-manufacture",
+        "tungsten",
+        "melting-points",
+        "signalling",
+        "shelter",
+        "retention",
+        "antibiotics"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.45
+    },
+    {
+      "id": "store-044",
+      "bucket": "store",
+      "question": "what does hydration percentage mean in bread",
+      "expect": [
+        "bread-baking"
+      ],
+      "avoid": [],
+      "returned": [
+        "bread-baking",
+        "my-preferences",
+        "sourdough-starter",
+        "signalling",
+        "melting-points"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5625
+    },
+    {
+      "id": "store-045",
+      "bucket": "store",
+      "question": "why does a slow cold ferment taste better",
+      "expect": [
+        "bread-baking"
+      ],
+      "avoid": [],
+      "returned": [
+        "bread-baking",
+        "rope-manufacture",
+        "shelter",
+        "antibiotics",
+        "solar-power",
+        "first-aid"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.15
+    },
+    {
+      "id": "store-046",
+      "bucket": "store",
+      "question": "what does the grey liquid on my sourdough starter mean",
+      "expect": [
+        "sourdough-starter"
+      ],
+      "avoid": [],
+      "returned": [
+        "sourdough-starter",
+        "melting-points",
+        "my-preferences",
+        "signalling"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.875
+    },
+    {
+      "id": "store-047",
+      "bucket": "store",
+      "question": "how often does a starter in the fridge need feeding",
+      "expect": [
+        "sourdough-starter"
+      ],
+      "avoid": [],
+      "returned": [
+        "sourdough-starter",
+        "bread-baking",
+        "bowline-river",
+        "water-purification",
+        "fire-making",
+        "my-shed"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.725
+    },
+    {
+      "id": "brain-001",
+      "bucket": "brain",
+      "question": "what is the capital city of Mongolia",
+      "expect": [],
+      "avoid": [],
+      "returned": [],
+      "abstained": true,
+      "reason": "below_threshold",
+      "rank": null,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.0
+    },
+    {
+      "id": "brain-002",
+      "bucket": "brain",
+      "question": "who wrote the novel Moby Dick",
+      "expect": [],
+      "avoid": [],
+      "returned": [],
+      "abstained": true,
+      "reason": "below_threshold",
+      "rank": null,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.0
+    },
+    {
+      "id": "brain-003",
+      "bucket": "brain",
+      "question": "how many players are on a netball team",
+      "expect": [],
+      "avoid": [],
+      "returned": [
+        "bow-archery",
+        "parser"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": null,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": false,
+      "best_score": 0.1875
+    },
+    {
+      "id": "brain-004",
+      "bucket": "brain",
+      "question": "what year did the Berlin Wall come down",
+      "expect": [],
+      "avoid": [],
+      "returned": [
+        "water-purification",
+        "navigation",
+        "bow-archery",
+        "antibiotics",
+        "retention",
+        "first-aid",
+        "sourdough-starter"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": null,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": false,
+      "best_score": 0.15
+    },
+    {
+      "id": "brain-005",
+      "bucket": "brain",
+      "question": "what language is spoken in Brazil",
+      "expect": [],
+      "avoid": [],
+      "returned": [],
+      "abstained": true,
+      "reason": "below_threshold",
+      "rank": null,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.0
+    },
+    {
+      "id": "brain-006",
+      "bucket": "brain",
+      "question": "who painted the ceiling of the Sistine Chapel",
+      "expect": [],
+      "avoid": [],
+      "returned": [],
+      "abstained": true,
+      "reason": "below_threshold",
+      "rank": null,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.0
+    },
+    {
+      "id": "brain-007",
+      "bucket": "brain",
+      "question": "what is the largest moon of Saturn called",
+      "expect": [],
+      "avoid": [],
+      "returned": [
+        "shelter",
+        "navigation",
+        "my-preferences",
+        "water-purification"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": null,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": false,
+      "best_score": 0.1875
+    },
+    {
+      "id": "brain-008",
+      "bucket": "brain",
+      "question": "how do you conjugate the French verb aller in the past tense",
+      "expect": [],
+      "avoid": [],
+      "returned": [],
+      "abstained": true,
+      "reason": "below_threshold",
+      "rank": null,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.0
+    },
+    {
+      "id": "brain-009",
+      "bucket": "brain",
+      "question": "what does the acronym NATO stand for",
+      "expect": [],
+      "avoid": [],
+      "returned": [
+        "my-preferences",
+        "knots"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": null,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": false,
+      "best_score": 0.25
+    },
+    {
+      "id": "brain-010",
+      "bucket": "brain",
+      "question": "which composer wrote the Brandenburg Concertos",
+      "expect": [],
+      "avoid": [],
+      "returned": [],
+      "abstained": true,
+      "reason": "below_threshold",
+      "rank": null,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.0
+    },
+    {
+      "id": "brain-011",
+      "bucket": "brain",
+      "question": "what is the currency of Japan",
+      "expect": [],
+      "avoid": [],
+      "returned": [],
+      "abstained": true,
+      "reason": "below_threshold",
+      "rank": null,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.0
+    },
+    {
+      "id": "brain-012",
+      "bucket": "brain",
+      "question": "how tall is Mount Kilimanjaro",
+      "expect": [],
+      "avoid": [],
+      "returned": [],
+      "abstained": true,
+      "reason": "below_threshold",
+      "rank": null,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.0
+    },
+    {
+      "id": "brain-013",
+      "bucket": "brain",
+      "question": "what year was the first iPhone released",
+      "expect": [],
+      "avoid": [],
+      "returned": [
+        "photosynthesis",
+        "navigation",
+        "my-preferences",
+        "bread-baking",
+        "my-vehicle",
+        "first-aid",
+        "knots"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": null,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "brain-014",
+      "bucket": "brain",
+      "question": "who was the first woman to win a Nobel Prize",
+      "expect": [],
+      "avoid": [],
+      "returned": [
+        "bread-baking",
+        "first-aid",
+        "photosynthesis",
+        "my-vehicle",
+        "navigation",
+        "my-preferences"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": null,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": false,
+      "best_score": 0.15
+    },
+    {
+      "id": "brain-015",
+      "bucket": "brain",
+      "question": "what is the offside rule in football",
+      "expect": [],
+      "avoid": [],
+      "returned": [],
+      "abstained": true,
+      "reason": "below_threshold",
+      "rank": null,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.0
+    },
+    {
+      "id": "brain-016",
+      "bucket": "brain",
+      "question": "which planet has the shortest day in the solar system",
+      "expect": [],
+      "avoid": [],
+      "returned": [
+        "antibiotics",
+        "solar-power",
+        "food-foraging",
+        "retention",
+        "sourdough-starter",
+        "my-preferences"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": null,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": false,
+      "best_score": 0.3
+    },
+    {
+      "id": "follow-001",
+      "bucket": "followup",
+      "question": "what about its melting point",
+      "expect": [
+        "tungsten"
+      ],
+      "avoid": [],
+      "returned": [
+        "melting-points",
+        "tungsten",
+        "my-vehicle",
+        "solar-power",
+        "antibiotics"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 2,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 1.0
+    },
+    {
+      "id": "follow-002",
+      "bucket": "followup",
+      "question": "how long for that",
+      "expect": [
+        "water-purification"
+      ],
+      "avoid": [],
+      "returned": [
+        "bread-baking",
+        "solar-power",
+        "bowline-river",
+        "fire-making",
+        "navigation"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": null,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": false,
+      "best_score": 0.75
+    },
+    {
+      "id": "follow-003",
+      "bucket": "followup",
+      "question": "and where is the file for it",
+      "expect": [
+        "my-shed"
+      ],
+      "avoid": [],
+      "returned": [
+        "my-shed"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.75
+    },
+    {
+      "id": "follow-004",
+      "bucket": "followup",
+      "question": "what about the rear ones",
+      "expect": [
+        "my-vehicle"
+      ],
+      "avoid": [],
+      "returned": [
+        "my-vehicle",
+        "my-shed",
+        "food-foraging",
+        "sourdough-starter",
+        "water-purification",
+        "navigation",
+        "shelter",
+        "solar-power"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 1.0
+    },
+    {
+      "id": "follow-005",
+      "bucket": "followup",
+      "question": "is that one any good in the cold",
+      "expect": [
+        "solar-power"
+      ],
+      "avoid": [],
+      "returned": [
+        "shelter",
+        "solar-power",
+        "bread-baking",
+        "my-shed",
+        "tungsten",
+        "water-purification",
+        "my-vehicle",
+        "food-foraging"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 2,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5625
+    },
+    {
+      "id": "follow-006",
+      "bucket": "followup",
+      "question": "which one holds better under a sideways pull",
+      "expect": [
+        "knots"
+      ],
+      "avoid": [],
+      "returned": [
+        "knots",
+        "rope-manufacture",
+        "water-purification",
+        "retention",
+        "food-foraging",
+        "my-shed",
+        "bowline-river",
+        "solar-power"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.425
+    },
+    {
+      "id": "follow-007",
+      "bucket": "followup",
+      "question": "how thick should that be",
+      "expect": [
+        "shelter"
+      ],
+      "avoid": [],
+      "returned": [
+        "shelter"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.75
+    },
+    {
+      "id": "follow-008",
+      "bucket": "followup",
+      "question": "what temperature does it take",
+      "expect": [
+        "melting-points"
+      ],
+      "avoid": [],
+      "returned": [
+        "food-foraging",
+        "my-preferences",
+        "fire-making",
+        "melting-points",
+        "water-purification",
+        "sourdough-starter",
+        "photosynthesis",
+        "bow-archery"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 4,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "follow-009",
+      "bucket": "followup",
+      "question": "and how long does it keep them",
+      "expect": [
+        "retention"
+      ],
+      "avoid": [],
+      "returned": [
+        "bread-baking",
+        "rope-manufacture",
+        "fire-making",
+        "solar-power",
+        "shelter",
+        "navigation",
+        "bowline-river"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": null,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": false,
+      "best_score": 0.75
+    },
+    {
+      "id": "follow-010",
+      "bucket": "followup",
+      "question": "what does it do with an empty string",
+      "expect": [
+        "parser"
+      ],
+      "avoid": [],
+      "returned": [
+        "parser",
+        "bow-archery"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.375
+    },
+    {
+      "id": "adv-001",
+      "bucket": "adversarial",
+      "question": "how do I tie a bowline knot",
+      "expect": [
+        "knots"
+      ],
+      "avoid": [
+        "bowline-river",
+        "bow-archery"
+      ],
+      "returned": [
+        "bowline-river",
+        "knots",
+        "rope-manufacture"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 2,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": true,
+      "best_score": 0.75
+    },
+    {
+      "id": "adv-002",
+      "bucket": "adversarial",
+      "question": "what draw weight should a recurve bow have",
+      "expect": [
+        "bow-archery"
+      ],
+      "avoid": [
+        "knots",
+        "bowline-river"
+      ],
+      "returned": [
+        "bow-archery",
+        "bread-baking",
+        "sourdough-starter",
+        "bowline-river",
+        "knots"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.8333
+    },
+    {
+      "id": "adv-003",
+      "bucket": "adversarial",
+      "question": "how do I tie up a boat at a dock",
+      "expect": [
+        "bowline-river"
+      ],
+      "avoid": [
+        "knots"
+      ],
+      "returned": [
+        "bowline-river",
+        "shelter",
+        "solar-power",
+        "fire-making",
+        "knots",
+        "signalling",
+        "my-vehicle",
+        "rope-manufacture"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.75
+    },
+    {
+      "id": "adv-004",
+      "bucket": "adversarial",
+      "question": "what is the melting point of tungsten specifically",
+      "expect": [
+        "tungsten"
+      ],
+      "avoid": [
+        "melting-points"
+      ],
+      "returned": [
+        "tungsten",
+        "melting-points",
+        "solar-power",
+        "my-vehicle",
+        "antibiotics"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": true,
+      "best_score": 0.6458
+    },
+    {
+      "id": "adv-005",
+      "bucket": "adversarial",
+      "question": "at what temperature does lead melt",
+      "expect": [
+        "melting-points"
+      ],
+      "avoid": [
+        "tungsten"
+      ],
+      "returned": [
+        "melting-points",
+        "tungsten",
+        "water-purification",
+        "sourdough-starter"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": true,
+      "best_score": 0.75
+    },
+    {
+      "id": "adv-006",
+      "bucket": "adversarial",
+      "question": "does nylon rope stretch under load",
+      "expect": [
+        "rope-manufacture"
+      ],
+      "avoid": [
+        "knots"
+      ],
+      "returned": [
+        "rope-manufacture",
+        "knots",
+        "retention",
+        "bowline-river",
+        "my-vehicle",
+        "solar-power"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": true,
+      "best_score": 0.8125
+    },
+    {
+      "id": "adv-007",
+      "bucket": "adversarial",
+      "question": "how much strength does a knot cost a rope",
+      "expect": [
+        "rope-manufacture"
+      ],
+      "avoid": [
+        "bowline-river"
+      ],
+      "returned": [
+        "rope-manufacture",
+        "knots",
+        "solar-power",
+        "bow-archery",
+        "signalling",
+        "fire-making",
+        "tungsten"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.6
+    },
+    {
+      "id": "adv-008",
+      "bucket": "adversarial",
+      "question": "how do I start a sourdough starter from scratch",
+      "expect": [
+        "sourdough-starter"
+      ],
+      "avoid": [
+        "bread-baking"
+      ],
+      "returned": [
+        "sourdough-starter"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.6458
+    },
+    {
+      "id": "adv-009",
+      "bucket": "adversarial",
+      "question": "why put steam in the oven when baking",
+      "expect": [
+        "bread-baking"
+      ],
+      "avoid": [
+        "sourdough-starter"
+      ],
+      "returned": [
+        "bread-baking",
+        "navigation"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": true,
+      "decoyed": false,
+      "best_score": 0.5625
+    },
+    {
+      "id": "adv-010",
+      "bucket": "adversarial",
+      "question": "how do I treat a burn on my hand",
+      "expect": [
+        "first-aid"
+      ],
+      "avoid": [
+        "fire-making"
+      ],
+      "returned": [
+        "first-aid",
+        "fire-making"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": true,
+      "best_score": 0.25
+    },
+    {
+      "id": "adv-011",
+      "bucket": "adversarial",
+      "question": "what is the spare fuel can for",
+      "expect": [
+        "my-shed"
+      ],
+      "avoid": [
+        "fire-making",
+        "my-vehicle"
+      ],
+      "returned": [
+        "my-shed",
+        "my-vehicle",
+        "fire-making",
+        "water-purification"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": true,
+      "best_score": 1.0
+    },
+    {
+      "id": "adv-012",
+      "bucket": "adversarial",
+      "question": "how do plants fix carbon dioxide",
+      "expect": [
+        "photosynthesis"
+      ],
+      "avoid": [
+        "food-foraging"
+      ],
+      "returned": [
+        "photosynthesis",
+        "bread-baking",
+        "food-foraging",
+        "water-purification",
+        "knots"
+      ],
+      "abstained": false,
+      "reason": "ok",
+      "rank": 1,
+      "rewritten": false,
+      "passed": false,
+      "decoyed": true,
+      "best_score": 0.8333
+    }
+  ]
+}
